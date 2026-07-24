@@ -1,0 +1,97 @@
+<svg viewBox="0 0 1050 790" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <defs>
+    <marker id="kg-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#52514e"/>
+    </marker>
+  </defs>
+
+  <rect width="1050" height="790" fill="#fcfcfb"/>
+  <rect x="1" y="1" width="1048" height="788" fill="none" stroke="#e1e0d9" stroke-width="1"/>
+
+  <text x="40" y="42" font-size="21" font-weight="600" fill="#0b0b0b">Knowledge graph: nodes + typed, directional edges</text>
+  <text x="40" y="65" font-size="13.5" fill="#52514e">The same five relationship types already curated in this corpus's _meta/ tables.</text>
+
+  <!-- edges (drawn first, under nodes) -->
+  <line x1="140" y1="212" x2="140" y2="328" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)"/>
+  <text x="152" y="266" font-size="11.5" fill="#52514e">NARRATED_FROM</text>
+
+  <line x1="140" y1="392" x2="140" y2="508" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)"/>
+  <text x="152" y="446" font-size="11.5" fill="#52514e">NARRATED_FROM</text>
+
+  <line x1="170" y1="180" x2="360" y2="180" stroke="#898781" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#kg-arrow)"/>
+  <text x="185" y="167" font-size="11.5" fill="#52514e">TRANSMITTED_IN</text>
+
+  <line x1="460" y1="212" x2="460" y2="328" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)" marker-start="url(#kg-arrow)"/>
+  <text x="472" y="266" font-size="11.5" fill="#52514e">SAME_HADITH_AS</text>
+  <text x="472" y="281" font-size="10.5" fill="#898781">key #4521</text>
+
+  <line x1="555" y1="540" x2="660" y2="540" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)"/>
+  <text x="558" y="527" font-size="11.5" fill="#52514e">COMMENTS_ON</text>
+
+  <line x1="790" y1="180" x2="900" y2="180" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)"/>
+  <text x="795" y="167" font-size="11.5" fill="#52514e">DERIVED_FROM</text>
+
+  <!-- narrator circles (blue) -->
+  <circle cx="140" cy="180" r="30" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+  <text x="140" y="228" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">Ahmad ibn Hanbal</text>
+  <text x="140" y="243" font-size="11" fill="#898781" text-anchor="middle">narrator</text>
+
+  <circle cx="140" cy="360" r="30" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+  <text x="140" y="408" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">Sufyan al-Thawri</text>
+  <text x="140" y="423" font-size="11" fill="#898781" text-anchor="middle">narrator</text>
+
+  <circle cx="140" cy="540" r="30" fill="#2a78d6" stroke="#fcfcfb" stroke-width="2"/>
+  <text x="140" y="588" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">Az-Zuhri</text>
+  <text x="140" y="603" font-size="11" fill="#898781" text-anchor="middle">narrator</text>
+
+  <!-- word-form circle (violet) -->
+  <circle cx="760" cy="180" r="30" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+  <text x="760" y="228" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">"يكتب" (verb form)</text>
+  <text x="760" y="243" font-size="11" fill="#898781" text-anchor="middle">inflected word</text>
+
+  <!-- root diamond (violet) -->
+  <polygon points="940,146 974,180 940,214 906,180" fill="#4a3aa7" stroke="#fcfcfb" stroke-width="2"/>
+  <text x="940" y="232" font-size="12.5" font-weight="600" fill="#0b0b0b" text-anchor="middle">ك-ت-ب</text>
+  <text x="940" y="247" font-size="11" fill="#898781" text-anchor="middle">triliteral root</text>
+
+  <!-- book rects (aqua) -->
+  <rect x="365" y="149" width="190" height="62" rx="8" fill="#1baf7a"/>
+  <text x="460" y="175" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">Sahih al-Bukhari</text>
+  <text x="460" y="193" font-size="11" fill="#eafff5" text-anchor="middle">book</text>
+
+  <rect x="365" y="329" width="190" height="62" rx="8" fill="#1baf7a"/>
+  <text x="460" y="355" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">Sahih Muslim</text>
+  <text x="460" y="373" font-size="11" fill="#eafff5" text-anchor="middle">book</text>
+
+  <rect x="365" y="509" width="190" height="62" rx="8" fill="#1baf7a"/>
+  <text x="460" y="535" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">Tafsir al-Tabari</text>
+  <text x="460" y="553" font-size="11" fill="#eafff5" text-anchor="middle">book</text>
+
+  <!-- verse rect (yellow) -->
+  <rect x="665" y="509" width="190" height="62" rx="8" fill="#eda100"/>
+  <text x="760" y="535" font-size="13" font-weight="600" fill="#3a2900" text-anchor="middle">Verse 2:255</text>
+  <text x="760" y="553" font-size="11" fill="#5c4300" text-anchor="middle">Ayat al-Kursi · verse</text>
+
+  <!-- legend -->
+  <circle cx="66" cy="660" r="9" fill="#2a78d6"/>
+  <text x="82" y="665" font-size="12.5" fill="#52514e">Narrator</text>
+  <rect x="228" y="651" width="20" height="18" rx="4" fill="#1baf7a"/>
+  <text x="256" y="665" font-size="12.5" fill="#52514e">Book</text>
+  <rect x="380" y="651" width="20" height="18" rx="4" fill="#eda100"/>
+  <text x="408" y="665" font-size="12.5" fill="#52514e">Verse</text>
+  <circle cx="612" cy="660" r="9" fill="#4a3aa7"/>
+  <text x="628" y="665" font-size="12.5" fill="#52514e">Word form / root</text>
+
+  <line x1="58" y1="694" x2="88" y2="694" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)"/>
+  <text x="96" y="698" font-size="12.5" fill="#525142">Directed relationship</text>
+  <line x1="330" y1="694" x2="360" y2="694" stroke="#898781" stroke-width="1.5" stroke-dasharray="5 4" marker-end="url(#kg-arrow)"/>
+  <text x="368" y="698" font-size="12.5" fill="#52514e">Implicit / derived link</text>
+  <line x1="618" y1="694" x2="648" y2="694" stroke="#52514e" stroke-width="2" marker-end="url(#kg-arrow)" marker-start="url(#kg-arrow)"/>
+  <text x="656" y="698" font-size="12.5" fill="#52514e">Symmetric link (same underlying fact)</text>
+
+  <!-- caption -->
+  <rect x="40" y="722" width="970" height="56" rx="6" fill="#f9f9f7" stroke="#e1e0d9"/>
+  <text x="56" y="743" font-size="12.5" fill="#0b0b0b" font-weight="600">Contrast with Fig. 1:</text>
+  <text x="56" y="761" font-size="12.5" fill="#52514e">an edge here names one specific relationship — not "these two are similar." All five types above already exist as curated</text>
+  <text x="56" y="776" font-size="12.5" fill="#52514e">tables in this corpus's _meta/ folder — no LLM extraction required to build them.</text>
+</svg>

@@ -1,0 +1,91 @@
+<svg viewBox="0 0 900 650" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif">
+  <rect width="900" height="650" fill="#fcfcfb"/>
+  <rect x="1" y="1" width="898" height="648" fill="none" stroke="#e1e0d9" stroke-width="1"/>
+
+  <text x="40" y="42" font-size="21" font-weight="600" fill="#0b0b0b">Vector store: an embedding space</text>
+  <text x="40" y="65" font-size="13.5" fill="#52514e">Every chunk becomes a point. Distance between points is the only relationship the index knows.</text>
+
+  <!-- plot area -->
+  <rect x="50" y="90" width="800" height="400" rx="8" fill="#ffffff" stroke="#e1e0d9" stroke-width="1"/>
+
+  <!-- cluster labels -->
+  <text x="150" y="118" font-size="12.5" fill="#52514e" font-weight="600">Hadith chunks</text>
+  <text x="610" y="118" font-size="12.5" fill="#52514e" font-weight="600">Tafsir chunks</text>
+  <text x="440" y="475" font-size="12.5" fill="#52514e" font-weight="600">Fiqh chunks</text>
+
+  <!-- missed-but-relevant dashed line (drawn first, sits under dots) -->
+  <line x1="300" y1="240" x2="430" y2="335" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="4 4"/>
+
+  <!-- retrieved lines -->
+  <line x1="300" y1="240" x2="255" y2="225" stroke="#52514e" stroke-width="1.5"/>
+  <line x1="300" y1="240" x2="245" y2="250" stroke="#52514e" stroke-width="1.5"/>
+  <line x1="300" y1="240" x2="235" y2="185" stroke="#52514e" stroke-width="1.5"/>
+
+  <!-- neighborhood dashed circle -->
+  <circle cx="300" cy="240" r="90" fill="none" stroke="#898781" stroke-width="1.5" stroke-dasharray="5 5"/>
+
+  <!-- Hadith cluster (blue) -->
+  <g fill="#2a78d6" fill-opacity="0.88">
+    <circle cx="190" cy="190" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="235" cy="185" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="255" cy="225" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="165" cy="235" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="205" cy="265" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="245" cy="250" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="175" cy="255" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="150" cy="205" r="7" stroke="#fcfcfb" stroke-width="2"/>
+  </g>
+
+  <!-- Tafsir cluster (aqua) -->
+  <g fill="#1baf7a" fill-opacity="0.88">
+    <circle cx="600" cy="155" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="650" cy="150" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="670" cy="190" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="610" cy="210" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="655" cy="225" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="690" cy="175" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="615" cy="175" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="645" cy="245" r="7" stroke="#fcfcfb" stroke-width="2"/>
+  </g>
+
+  <!-- Fiqh cluster (orange) -->
+  <g fill="#eb6834" fill-opacity="0.88">
+    <circle cx="430" cy="335" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="480" cy="330" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="500" cy="365" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="440" cy="385" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="490" cy="395" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="415" cy="365" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="465" cy="405" r="7" stroke="#fcfcfb" stroke-width="2"/>
+    <circle cx="510" cy="340" r="7" stroke="#fcfcfb" stroke-width="2"/>
+  </g>
+
+  <!-- query marker -->
+  <polygon points="300,222 316,240 300,258 284,240" fill="#0b0b0b"/>
+  <text x="308" y="215" font-size="12" fill="#0b0b0b" font-weight="600">query: "ruling on X"</text>
+
+  <!-- missed-but-relevant label -->
+  <text x="345" y="300" font-size="11.5" fill="#d03b3b">same ruling, different wording —</text>
+  <text x="345" y="314" font-size="11.5" fill="#d03b3b">never retrieved</text>
+
+  <!-- legend row 1 -->
+  <circle cx="66" cy="524" r="7" fill="#2a78d6"/>
+  <text x="80" y="529" font-size="12.5" fill="#52514e">Hadith chunk</text>
+  <circle cx="256" cy="524" r="7" fill="#1baf7a"/>
+  <text x="270" y="529" font-size="12.5" fill="#52514e">Tafsir chunk</text>
+  <circle cx="446" cy="524" r="7" fill="#eb6834"/>
+  <text x="460" y="529" font-size="12.5" fill="#52514e">Fiqh chunk</text>
+  <polygon points="636,517 646,524 636,531 626,524" fill="#0b0b0b"/>
+  <text x="654" y="529" font-size="12.5" fill="#52514e">Query</text>
+
+  <!-- legend row 2 -->
+  <line x1="58" y1="552" x2="78" y2="552" stroke="#52514e" stroke-width="1.5"/>
+  <text x="86" y="556" font-size="12.5" fill="#52514e">Retrieved (nearest by distance)</text>
+  <line x1="428" y1="552" x2="448" y2="552" stroke="#d03b3b" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <text x="456" y="556" font-size="12.5" fill="#52514e">Related, but missed</text>
+
+  <!-- caption -->
+  <rect x="50" y="578" width="800" height="52" rx="6" fill="#f9f9f7" stroke="#e1e0d9"/>
+  <text x="66" y="598" font-size="12.5" fill="#0b0b0b" font-weight="600">Limitation:</text>
+  <text x="66" y="616" font-size="12.5" fill="#52514e">no edge type, no direction, no guaranteed multi-hop path — only "these two points read as similar text."</text>
+</svg>

@@ -1,0 +1,8 @@
+# The Shamela4 corpus itself is not stored in this repo — see README.md for
+# how to obtain it from Hugging Face (AuthenticIlm/Shamela4_Full_DB), ~19-31 GB.
+[0-9][0-9]__*/
+_meta/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
