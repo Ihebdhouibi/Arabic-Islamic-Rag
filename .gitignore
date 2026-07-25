@@ -6,3 +6,6 @@ _meta/
 # OS / editor noise
 .DS_Store
 Thumbs.db
+
+# Local Python venv for ad hoc data investigation
+.venv/

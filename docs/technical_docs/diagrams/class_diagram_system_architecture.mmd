@@ -1,0 +1,144 @@
+classDiagram
+    direction LR
+
+    class IngestionPipeline {
+        +run(books: List~Book~)
+    }
+
+    class ChunkRouter {
+        +route(book: Book) Chunker
+        -curatedCoverage: CoverageRegistry
+    }
+
+    class Chunker {
+        <<interface>>
+        +chunk(book: Book) List~Chunk~
+    }
+    class TocAnchoredChunker
+    class HadithAtomicChunker
+    class VerseAnchoredChunker
+    class DualStreamChunker
+    class PoetryAtomicChunker
+
+    Chunker <|.. TocAnchoredChunker
+    Chunker <|.. HadithAtomicChunker
+    Chunker <|.. VerseAnchoredChunker
+    Chunker <|.. DualStreamChunker
+    Chunker <|.. PoetryAtomicChunker
+
+    class Chunk {
+        +chunkId: str
+        +bookId: int
+        +pageRange: Range
+        +text: str
+        +genre: Genre
+        +sourceProvenance: Provenance
+        +contextPrefix: str
+    }
+
+    class ContextualPrefixer {
+        +prefix(chunk: Chunk, book: Book, toc: TocEntry) str
+    }
+
+    class Embedder {
+        <<interface>>
+        +embed(chunks: List~Chunk~) List~Vector~
+    }
+    class VectorStore {
+        <<interface>>
+        +upsert(chunks: List~Chunk~, vectors: List~Vector~)
+        +search(queryVector: Vector, k: int) List~Chunk~
+    }
+    class LexicalIndex {
+        <<interface>>
+        +search(queryText: str, k: int) List~Chunk~
+    }
+    class GraphStore {
+        <<interface>>
+        +traverseIsnad(narratorId: int, depth: int) IsnadChain
+        +getTafsirForVerse(verseId: int) List~Chunk~
+        +getHadithConcordance(keyId: int) List~Chunk~
+        +expandNeighborhood(chunk: Chunk) List~GraphFact~
+    }
+
+    IngestionPipeline *-- ChunkRouter
+    IngestionPipeline *-- Embedder
+    IngestionPipeline *-- VectorStore
+    IngestionPipeline *-- LexicalIndex
+    IngestionPipeline *-- GraphStore
+    ChunkRouter ..> Chunker : selects
+    Chunker ..> Chunk : creates
+    Chunk ..> ContextualPrefixer : uses
+    Embedder ..> Chunk : embeds
+
+    class QueryRouter {
+        +classify(query: str) UseCase
+    }
+    class UseCase {
+        <<enumeration>>
+        GENERAL_QA
+        HADITH_TAKHRIJ
+        TAFSIR_BY_VERSE
+        FIQH_LOOKUP
+    }
+    class RetrievalStrategy {
+        <<interface>>
+        +retrieve(query: str) RetrievalResult
+    }
+    class GeneralHybridRetrieval
+    class HadithTakhrijRetrieval
+    class TafsirByVerseRetrieval
+    class FiqhRulingRetrieval
+
+    RetrievalStrategy <|.. GeneralHybridRetrieval
+    RetrievalStrategy <|.. HadithTakhrijRetrieval
+    RetrievalStrategy <|.. TafsirByVerseRetrieval
+    RetrievalStrategy <|.. FiqhRulingRetrieval
+
+    QueryRouter ..> UseCase : produces
+    QueryRouter ..> RetrievalStrategy : selects
+
+    GeneralHybridRetrieval ..> VectorStore
+    GeneralHybridRetrieval ..> LexicalIndex
+    HadithTakhrijRetrieval ..> GraphStore
+    TafsirByVerseRetrieval ..> GraphStore
+    FiqhRulingRetrieval ..> VectorStore
+    FiqhRulingRetrieval ..> LexicalIndex
+
+    class Reranker {
+        +rerank(query: str, candidates: List~Chunk~) List~Chunk~
+    }
+    class GraphAugmentedEnricher {
+        +enrich(chunks: List~Chunk~) EnrichedContext
+    }
+    class GenerationService {
+        +generate(query: str, context: EnrichedContext) CitedAnswer
+    }
+    class CitedAnswer {
+        +answerText: str
+        +citations: List~Citation~
+        +disagreementGroups: List~DisagreementGroup~
+    }
+    class LLMClient {
+        <<interface>>
+        +complete(prompt: str) str
+    }
+    class FanarClient
+    class JaisClient
+    class Qwen3Client
+
+    LLMClient <|.. FanarClient
+    LLMClient <|.. JaisClient
+    LLMClient <|.. Qwen3Client
+
+    RetrievalStrategy ..> Reranker : results flow to
+    Reranker ..> GraphAugmentedEnricher
+    GraphAugmentedEnricher ..> GenerationService
+    GenerationService *-- LLMClient
+    GenerationService ..> CitedAnswer : produces
+
+    class EvaluationHarness {
+        +evaluate(goldenSet: List~QAExample~) Metrics
+    }
+    EvaluationHarness ..> RetrievalStrategy : evaluates
+    EvaluationHarness ..> GenerationService : evaluates

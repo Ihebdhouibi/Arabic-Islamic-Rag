@@ -1,0 +1,35 @@
+flowchart TD
+    A["Stage 0: Schema & ID reconciliation<br/>verify shamela_id/shamela_page_id resolution<br/>for every _meta table before any join logic"] --> B
+
+    B["Stage 1: Metadata normalization<br/>load book_metadata.json → books table<br/>verify manifest.json SHA-256 checksums"] --> C
+
+    C{"Stage 2: Genre + coverage routing<br/>category_id AND curated-coverage membership"}
+    C -->|"category 06, in curated 10"| D1["HadithAtomicChunker"]
+    C -->|"category 06, NOT in curated 10"| D2["TocAnchoredChunker (fallback)"]
+    C -->|"category 03, in curated 9"| D3["VerseAnchoredChunker"]
+    C -->|"category 03, NOT in curated 9"| D2
+    C -->|"aqidah/prose w/ footnotes"| D4["DualStreamChunker"]
+    C -->|"poetry"| D5["PoetryAtomicChunker"]
+    C -->|"everything else"| D2
+
+    D1 --> E
+    D2 --> E
+    D3 --> E
+    D4 --> E
+    D5 --> E
+
+    E["Stage 3: Chunking<br/>per-genre chunker applied,<br/>secondary split if a section is too large"] --> F
+
+    F["Stage 4: Contextual prefixing<br/>cheap metadata breadcrumb by default;<br/>LLM-generated context for fiqh/ambiguous genres"] --> G
+
+    G["Stage 5: Embedding<br/>batch-embed via chosen model (docs 03/09)<br/>content-hash each chunk for idempotent re-runs"] --> H
+
+    G --> I
+
+    H["Stage 6: Lexical / root-normalized index<br/>BM25 + root_dictionary-normalized field"] --> J
+    I["Stage 7: Graph loading<br/>isnad edges, hadith concordance, verse links<br/>via resolved shamela_id/shamela_page_id"] --> J
+
+    J["Stage 8: Validation / QA<br/>row-count reconciliation vs manifests<br/>golden-set spot check (doc 06)"]
+
+    J -->|"pass"| K(["Ready for query-time retrieval"])
+    J -->|"fail"| A

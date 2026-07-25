@@ -1,0 +1,50 @@
+sequenceDiagram
+    actor User
+    participant QR as QueryRouter
+    participant RS as RetrievalStrategy
+    participant VS as VectorStore
+    participant LX as LexicalIndex
+    participant GS as GraphStore
+    participant RR as Reranker
+    participant EN as GraphAugmentedEnricher
+    participant GEN as GenerationService
+    participant LLM as LLMClient
+
+    User->>QR: question
+    QR->>QR: classify(query) → UseCase
+
+    alt HADITH_TAKHRIJ
+        QR->>RS: HadithTakhrijRetrieval.retrieve(query)
+        RS->>GS: resolve hadith key_id, traverse isnad
+        GS-->>RS: hadith variants + isnad chains + narrator grading
+    else TAFSIR_BY_VERSE
+        QR->>RS: TafsirByVerseRetrieval.retrieve(query)
+        RS->>GS: resolve verse, get tafsir cross-refs
+        GS-->>RS: per-mufassir commentary chunks
+    else FIQH_LOOKUP
+        QR->>RS: FiqhRulingRetrieval.retrieve(query)
+        RS->>VS: dense search (madhhab/era filtered)
+        RS->>LX: lexical/root-normalized search
+        VS-->>RS: candidate chunks
+        LX-->>RS: candidate chunks
+    else GENERAL_QA
+        QR->>RS: GeneralHybridRetrieval.retrieve(query)
+        RS->>VS: dense search (TOC-anchored chunks)
+        RS->>LX: lexical/root-normalized search
+        VS-->>RS: candidate chunks
+        LX-->>RS: candidate chunks
+    end
+
+    RS-->>QR: RetrievalResult
+    QR->>RR: rerank(query, candidates)
+    RR-->>QR: top-N chunks, lost-in-the-middle reordered
+
+    QR->>EN: enrich(top-N chunks)
+    EN->>GS: expandNeighborhood(chunk) for each chunk
+    GS-->>EN: narrator bios, jarh-wa-ta'dil, cross-references
+    EN-->>QR: EnrichedContext
+
+    QR->>GEN: generate(query, EnrichedContext)
+    GEN->>LLM: complete(prompt with mandatory citation instructions)
+    LLM-->>GEN: draft answer
+    GEN-->>User: CitedAnswer (sources attached, disagreement grouped by madhhab/mufassir)
