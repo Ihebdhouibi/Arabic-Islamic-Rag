@@ -1,0 +1,24 @@
+flowchart TD
+    subgraph Batch["One training batch"]
+        Q["Anchor: a query"]
+        P["Positive: the passage<br/>that actually answers it"]
+        N1["Negative 1<br/>(another passage in the batch)"]
+        N2["Negative 2<br/>(a mined 'hard negative' -<br/>looks similar but is wrong)"]
+    end
+
+    Q --> ENC["Shared-weight encoder<br/>(same model encodes all four)"]
+    P --> ENC
+    N1 --> ENC
+    N2 --> ENC
+
+    ENC --> VQ["vector(Q)"]
+    ENC --> VP["vector(P)"]
+    ENC --> VN1["vector(N1)"]
+    ENC --> VN2["vector(N2)"]
+
+    VQ --> LOSS["Contrastive loss (e.g. InfoNCE):<br/>pull Q and P together,<br/>push Q away from N1 and N2"]
+    VP --> LOSS
+    VN1 --> LOSS
+    VN2 --> LOSS
+
+    LOSS --> UPDATE["Backprop updates encoder weights<br/>so future Q-P pairs land closer<br/>than Q-N pairs"]

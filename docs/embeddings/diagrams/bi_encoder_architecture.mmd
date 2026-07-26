@@ -1,0 +1,12 @@
+flowchart TD
+    A["Input text<br/>(a query or a passage)"] --> B["Tokenizer<br/>(subword pieces)"]
+    B --> C["Transformer encoder<br/>(stacked self-attention + FFN layers)"]
+    C --> D["Contextualized token embeddings<br/>(one vector per token)"]
+    D --> E{"Pooling strategy"}
+    E -->|"mean pooling"| F["Average all token vectors"]
+    E -->|"CLS pooling"| G["Take the [CLS]/first-token vector"]
+    E -->|"last-token pooling"| H["Take the final token's vector<br/>(common for decoder-based embedders)"]
+    F --> I["L2 normalization"]
+    G --> I
+    H --> I
+    I --> J["Single dense vector<br/>e.g. 1024 dimensions"]

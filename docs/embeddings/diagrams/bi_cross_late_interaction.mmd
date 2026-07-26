@@ -1,0 +1,26 @@
+flowchart TB
+    subgraph BI["Bi-encoder"]
+        direction TB
+        BIQ["Query"] --> BIQE["Encode -> 1 vector"]
+        BID["Document"] --> BIDE["Encode -> 1 vector<br/>(precomputed, stored)"]
+        BIQE --> BIDOT["Single dot product"]
+        BIDE --> BIDOT
+        BIDOT --> BIOUT["Similarity score<br/>(fast: no joint encoding)"]
+    end
+
+    subgraph CROSS["Cross-encoder"]
+        direction TB
+        CQ["Query"] --> CCAT["Concatenate query + document"]
+        CD["Document"] --> CCAT
+        CCAT --> CENC["Joint encode<br/>(full cross-attention between<br/>every query and document token)"]
+        CENC --> COUT["Similarity score<br/>(accurate, but can't be precomputed -<br/>needs the query at encode time)"]
+    end
+
+    subgraph LATE["Late interaction (ColBERT)"]
+        direction TB
+        LQ["Query"] --> LQE["Encode -> N token vectors<br/>(one per query token)"]
+        LD["Document"] --> LDE["Encode -> M token vectors<br/>(precomputed, stored)"]
+        LQE --> MAXSIM["MaxSim: for each query token,<br/>take its best match among<br/>all document tokens, then sum"]
+        LDE --> MAXSIM
+        MAXSIM --> LOUT["Similarity score<br/>(more precise than bi-encoder,<br/>far cheaper than cross-encoder)"]
+    end
