@@ -1,0 +1,10 @@
+flowchart TD
+    A["Shamela book: pages.jsonl + toc.jsonl<br/>(hierarchy already curated -<br/>no LLM structure inference needed)"] --> B["Adapter: map toc.jsonl hierarchy<br/>directly to a PageIndex-style tree<br/>(node_id / title / page range)"]
+    B --> C["Optional: LLM-generate node<br/>summaries only - the one PageIndex<br/>step still needed, far cheaper than<br/>full structure inference"]
+    C --> D["Per-book tree index"]
+
+    E["Query routed to GeneralHybridRetrieval<br/>or FiqhRulingRetrieval (doc 07 SS5)"] --> F{"Book already identified as<br/>relevant via vector/lexical search?"}
+    F -->|"Yes - one book"| G["Reasoning-based tree search<br/>WITHIN that book, using D"]
+    F -->|"No - corpus-wide"| H["Fall back to existing hybrid<br/>vector+lexical search (doc 07)"]
+    G --> I["Cited section + exact page,<br/>high precision"]
+    H --> I

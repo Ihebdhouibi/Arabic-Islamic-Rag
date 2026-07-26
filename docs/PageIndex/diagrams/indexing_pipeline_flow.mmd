@@ -1,0 +1,12 @@
+flowchart TD
+    A["Input: PDF or Markdown document"] --> B{"Scan first N pages<br/>for an existing ToC<br/>(--toc-check-pages)"}
+    B -->|"ToC found"| C["Parse existing ToC into<br/>a node skeleton"]
+    B -->|"No ToC found"| D["LLM infers hierarchical<br/>structure from headings/layout"]
+    C --> E["Tree skeleton:<br/>node_id, title, start_index, end_index"]
+    D --> E
+    E --> F["Per node: LLM generates a<br/>summary from that node's page range"]
+    F --> G{"Node exceeds<br/>--max-pages-per-node or<br/>--max-tokens-per-node?"}
+    G -->|"Yes"| H["Split into child sub-nodes,<br/>recurse into F"]
+    G -->|"No"| I["Finalize node"]
+    H --> F
+    I --> J["Assemble final JSON tree:<br/>nested nodes with id/title/summary/page-range"]

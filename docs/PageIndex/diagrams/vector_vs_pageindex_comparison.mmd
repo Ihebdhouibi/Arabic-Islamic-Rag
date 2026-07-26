@@ -1,0 +1,22 @@
+flowchart LR
+    subgraph VEC["Vector RAG"]
+        direction TB
+        VA["Document"] --> VB["Fixed-size chunking"]
+        VB --> VC["Embed each chunk"]
+        VC --> VD[("Vector DB")]
+        VQ["Query"] --> VE["Embed query"]
+        VE --> VF["Cosine-similarity top-k"]
+        VD --> VF
+        VF --> VG["Top-k chunks to LLM"]
+    end
+
+    subgraph PI["PageIndex"]
+        direction TB
+        PA["Document"] --> PB["LLM parses/infers<br/>hierarchical structure"]
+        PB --> PC["Tree: node id / title /<br/>summary / page-range"]
+        PQQ["Query"] --> PD["LLM reasons over<br/>the tree"]
+        PC --> PD
+        PD --> PE["Select relevant node(s)"]
+        PE --> PF["Fetch raw section text"]
+        PF --> PG["Cited section to LLM"]
+    end

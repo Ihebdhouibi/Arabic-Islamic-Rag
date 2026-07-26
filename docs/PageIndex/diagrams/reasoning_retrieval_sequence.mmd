@@ -1,0 +1,23 @@
+sequenceDiagram
+    actor User
+    participant Agent
+    participant Tree as JSON Tree Index
+    participant Docs as Raw Document Pages
+    participant LLM
+
+    User->>Agent: question
+    Agent->>Tree: load full tree (small enough for one context window)
+    Agent->>LLM: reason over tree structure + question
+    LLM-->>Agent: ranked candidate node_ids + reasoning trace
+
+    loop until sufficient or candidates exhausted
+        Agent->>Docs: fetch raw content for top candidate node's page range
+        Docs-->>Agent: section text
+        Agent->>LLM: does this section answer the question?
+        LLM-->>Agent: extracted info + sufficiency judgment
+        alt insufficient
+            Agent->>Agent: advance to next candidate node
+        end
+    end
+
+    Agent-->>User: answer + cited node id / page range
