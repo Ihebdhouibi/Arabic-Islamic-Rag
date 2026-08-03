@@ -1,10 +1,10 @@
-# -*- coding: utf-8 -*-
 import json
-import numpy as np
+
 import matplotlib
+import numpy as np
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
-from matplotlib.patches import FancyArrowPatch
 from sklearn.decomposition import PCA
 
 with open("embed_demo_result.json", "r", encoding="utf-8") as f:
@@ -23,7 +23,7 @@ genre_colors = {
     "Quran": "#eda100",
 }
 
-labels = [f'{s["genre"]}\n{s["book"]}' for s in snippets]
+labels = [f"{s['genre']}\n{s['book']}" for s in snippets]
 short_labels = [s["id"] for s in snippets]
 genres = [s["genre"] for s in snippets]
 colors = [genre_colors[g] for g in genres]
@@ -37,10 +37,20 @@ ax.set_xticklabels(short_labels, rotation=45, ha="right", fontsize=8)
 ax.set_yticklabels(short_labels, fontsize=8)
 for i in range(len(short_labels)):
     for j in range(len(short_labels)):
-        ax.text(j, i, f"{sim[i,j]:.2f}", ha="center", va="center",
-                 color="white" if sim[i, j] > 0.82 else "black", fontsize=7.5)
+        ax.text(
+            j,
+            i,
+            f"{sim[i, j]:.2f}",
+            ha="center",
+            va="center",
+            color="white" if sim[i, j] > 0.82 else "black",
+            fontsize=7.5,
+        )
 plt.colorbar(im, ax=ax, label="cosine similarity")
-ax.set_title("Real cosine similarity matrix\nintfloat/multilingual-e5-small on 8 real Shamela passages", fontsize=11)
+ax.set_title(
+    "Real cosine similarity matrix\nintfloat/multilingual-e5-small on 8 real Shamela passages",
+    fontsize=11,
+)
 plt.tight_layout()
 plt.savefig("similarity_heatmap.png", facecolor="white")
 plt.close()
@@ -57,10 +67,28 @@ for i, s in enumerate(snippets):
     lbl = g if g not in seen_genres else None
     if lbl:
         seen_genres.append(g)
-    ax.scatter(coords[i, 0], coords[i, 1], s=180, color=genre_colors[g], edgecolor="white", linewidth=1.5, label=lbl, zorder=3)
-    ax.annotate(s["id"], (coords[i, 0], coords[i, 1]), textcoords="offset points", xytext=(8, 6), fontsize=8)
+    ax.scatter(
+        coords[i, 0],
+        coords[i, 1],
+        s=180,
+        color=genre_colors[g],
+        edgecolor="white",
+        linewidth=1.5,
+        label=lbl,
+        zorder=3,
+    )
+    ax.annotate(
+        s["id"],
+        (coords[i, 0], coords[i, 1]),
+        textcoords="offset points",
+        xytext=(8, 6),
+        fontsize=8,
+    )
 
-ax.set_title(f"Real PCA projection of 8 real embeddings\n(explained variance: {explained[0]*100:.1f}% + {explained[1]*100:.1f}%)", fontsize=11)
+ax.set_title(
+    f"Real PCA projection of 8 real embeddings\n(explained variance: {explained[0] * 100:.1f}% + {explained[1] * 100:.1f}%)",
+    fontsize=11,
+)
 ax.set_xlabel("PC1")
 ax.set_ylabel("PC2")
 ax.legend(loc="best", fontsize=9)
