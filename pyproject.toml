@@ -1,0 +1,45 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "shamela-rag"
+version = "0.0.1"
+description = "RAG/GraphRAG over the Shamela4 classical-Arabic corpus (general question-answering module)."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "AuthenticIlm" }]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "ruff>=0.16",
+  "mypy>=1.11",
+  "pre-commit>=4.0",
+]
+
+[project.scripts]
+shamela-rag = "shamela_rag.cli:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/shamela_rag"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+extend-exclude = ["docs", "*.md"]  # demo scripts + markdown code snippets, not maintained code
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["src", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

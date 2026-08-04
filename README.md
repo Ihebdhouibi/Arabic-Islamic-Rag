@@ -43,6 +43,22 @@ and a 1.95M-entry Arabic root dictionary. This structured layer is a major input
 architecture proposed in the docs above — see
 [docs/technical_docs/05_knowledge_graphs_and_graphrag.md](docs/technical_docs/05_knowledge_graphs_and_graphrag.md).
 
+## Development
+
+The general question-answering module is implemented as the `shamela_rag` Python package under
+`src/`. Requires Python 3.11+.
+
+```bash
+python -m venv .venv
+.venv/Scripts/activate          # Windows PowerShell: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"          # editable install with dev tools
+pre-commit install               # enable lint/format/commit-msg hooks
+pytest                           # run the test suite
+```
+
+Planning and design live in `docs/implementation/` (plan + issue backlog) and
+`docs/technical_docs/`. Contributor conventions are in [CLAUDE.md](CLAUDE.md).
+
 ## Citation
 
 If you use the underlying dataset, please cite it (and the original Shamela library) as follows —

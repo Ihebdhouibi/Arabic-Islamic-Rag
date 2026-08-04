@@ -9,3 +9,13 @@ Thumbs.db
 
 # Local Python venv for ad hoc data investigation
 .venv/
+
+# Python build / cache artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
