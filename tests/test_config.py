@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from shamela_rag.config import Settings
 
 
-def test_defaults_load() -> None:
+def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Isolate from any ambient SHAMELA_* vars (e.g. set in CI) so we test true code defaults.
+    for key in list(os.environ):
+        if key.startswith("SHAMELA_"):
+            monkeypatch.delenv(key, raising=False)
     s = Settings(_env_file=None)
     assert s.postgres_port == 5433
     assert s.qdrant_url.startswith("http")
