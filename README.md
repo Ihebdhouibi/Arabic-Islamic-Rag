@@ -64,7 +64,7 @@ Planning and design live in `docs/implementation/` (plan + issue backlog) and
 Postgres (relational/provenance + source text) and Qdrant (dense + sparse vectors) run via Docker:
 
 ```bash
-docker compose up -d      # Postgres on :5432, Qdrant on :6333/:6334
+docker compose up -d      # Postgres on :5433, Qdrant on :6333/:6334
 docker compose down       # stop (add -v to also drop the data volumes)
 ```
 

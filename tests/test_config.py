@@ -7,9 +7,9 @@ from shamela_rag.config import Settings
 
 def test_defaults_load() -> None:
     s = Settings(_env_file=None)
-    assert s.postgres_port == 5432
+    assert s.postgres_port == 5433
     assert s.qdrant_url.startswith("http")
-    assert s.postgres_dsn == "postgresql://shamela:shamela@localhost:5432/shamela_rag"
+    assert s.postgres_dsn == "postgresql://shamela:shamela@localhost:5433/shamela_rag"
     assert s.chunk_min_tokens < s.chunk_max_tokens
 
 

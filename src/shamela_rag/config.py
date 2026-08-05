@@ -22,9 +22,10 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Postgres (relational / provenance store)
+    # Postgres (relational / provenance store). Host port 5433 avoids clashing with a native
+    # Postgres commonly bound to 5432; the container still listens on 5432 internally.
     postgres_host: str = "localhost"
-    postgres_port: int = 5432
+    postgres_port: int = 5433
     postgres_user: str = "shamela"
     postgres_password: str = "shamela"
     postgres_db: str = "shamela_rag"
@@ -52,6 +53,10 @@ class Settings(BaseSettings):
             f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
+
+    @property
+    def sqlalchemy_dsn(self) -> str:
+        return self.postgres_dsn.replace("postgresql://", "postgresql+psycopg://", 1)
 
 
 @lru_cache
