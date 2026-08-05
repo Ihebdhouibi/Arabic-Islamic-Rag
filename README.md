@@ -59,6 +59,19 @@ pytest                           # run the test suite
 Planning and design live in `docs/implementation/` (plan + issue backlog) and
 `docs/technical_docs/`. Contributor conventions are in [CLAUDE.md](CLAUDE.md).
 
+### Local services
+
+Postgres (relational/provenance + source text) and Qdrant (dense + sparse vectors) run via Docker:
+
+```bash
+docker compose up -d      # Postgres on :5432, Qdrant on :6333/:6334
+docker compose down       # stop (add -v to also drop the data volumes)
+```
+
+Credentials and ports default to a local dev profile and can be overridden in a `.env` file
+(`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `QDRANT_HTTP_PORT`,
+`QDRANT_GRPC_PORT`). Requires Docker Desktop on the Linux engine.
+
 ## Citation
 
 If you use the underlying dataset, please cite it (and the original Shamela library) as follows —
