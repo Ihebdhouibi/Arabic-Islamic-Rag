@@ -19,3 +19,6 @@ dist/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
+
+# Local environment overrides (keep .env.example tracked)
+.env
