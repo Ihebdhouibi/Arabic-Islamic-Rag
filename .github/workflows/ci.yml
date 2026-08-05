@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [develop, stable-testing, main]
+  push:
+    branches: [develop, stable-testing, main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Ruff lint
+        run: ruff check .
+      - name: Ruff format
+        run: ruff format --check .
+      - name: Mypy
+        run: mypy src
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: shamela
+          POSTGRES_PASSWORD: shamela
+          POSTGRES_DB: shamela_rag
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U shamela -d shamela_rag"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      qdrant:
+        image: qdrant/qdrant:v1.17.0
+        ports:
+          - 6333:6333
+          - 6334:6334
+    env:
+      SHAMELA_POSTGRES_HOST: localhost
+      SHAMELA_POSTGRES_PORT: "5432"
+      SHAMELA_POSTGRES_USER: shamela
+      SHAMELA_POSTGRES_PASSWORD: shamela
+      SHAMELA_POSTGRES_DB: shamela_rag
+      SHAMELA_QDRANT_URL: http://localhost:6333
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Install
+        run: pip install -e ".[dev]"
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Pytest
+        run: pytest -q
