@@ -9,7 +9,6 @@ trail their children inherit.
 
 from __future__ import annotations
 
-import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,13 +18,11 @@ from shamela_rag.chunking.content_roles import ContentRole
 from shamela_rag.chunking.context_header import build_context_header, context_from
 from shamela_rag.chunking.navigation import DEFAULT_MIN_CONTENT_TOKENS, is_navigational
 from shamela_rag.chunking.sections import build_sections
-from shamela_rag.chunking.sizing import DEFAULT_POLICY, SizePolicy
+from shamela_rag.chunking.sizing import DEFAULT_POLICY, SizePolicy, split_section_offsets
 from shamela_rag.chunking.tokens import count_tokens
 from shamela_rag.data.models import Book, Page, TocEntry, load_book, load_pages, load_toc
 from shamela_rag.data.ordering import order_pages
 from shamela_rag.text.normalization import normalize_for_index
-
-_SENTENCE_BREAK = re.compile(r"[.!?؟؛]\s+|(?:\r\n|\r|\n){2,}")
 
 
 @dataclass(frozen=True)
@@ -64,20 +61,6 @@ def _segments(body: str, boundaries: Sequence[Boundary]) -> list[_Segment]:
         if end > start:
             segments.append(_Segment(start, end, boundary))
     return segments
-
-
-def _split_offsets(text: str, policy: SizePolicy) -> list[tuple[int, int]]:
-    if count_tokens(text) <= policy.max_tokens:
-        return [(0, len(text))]
-    spans: list[tuple[int, int]] = []
-    start = 0
-    for match in _SENTENCE_BREAK.finditer(text):
-        if count_tokens(text[start : match.end()]) >= policy.split_target_tokens:
-            spans.append((start, match.end()))
-            start = match.end()
-    if start < len(text):
-        spans.append((start, len(text)))
-    return spans or [(0, len(text))]
 
 
 def _book_root(book: Book) -> tuple[str, ...]:
@@ -137,7 +120,7 @@ def chunk_book(
             segment_text = page.body[segment.start : segment.end]
             if is_navigational(segment_text, min_content_tokens=min_content_tokens):
                 continue
-            for local_start, local_end in _split_offsets(segment_text, policy):
+            for local_start, local_end in split_section_offsets(segment_text, policy):
                 source = segment_text[local_start:local_end]
                 if not source.strip():
                     continue
@@ -155,7 +138,7 @@ def chunk_book(
                 )
 
         if page.footnotes and page.footnotes.strip():
-            for local_start, local_end in _split_offsets(page.footnotes, policy):
+            for local_start, local_end in split_section_offsets(page.footnotes, policy):
                 source = page.footnotes[local_start:local_end]
                 if not source.strip():
                     continue
