@@ -33,6 +33,7 @@ class Settings(BaseSettings):
     # Qdrant (vector store)
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "shamela_general"
+    qdrant_dense_dim: int = 1024  # BGE-M3 default; Qwen3-8B would be larger
 
     # Models (final dense model chosen by the M6 benchmark)
     dense_embedding_model: str = "BAAI/bge-m3"
