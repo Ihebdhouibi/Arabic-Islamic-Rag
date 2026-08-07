@@ -24,6 +24,11 @@ dev = [
   "mypy>=1.11",
   "pre-commit>=4.0",
 ]
+qwen = [
+  "sentence-transformers>=2.7.0",
+  "transformers>=4.51.0",
+  "torch",
+]
 
 [project.scripts]
 shamela-rag = "shamela_rag.cli:main"
