@@ -57,6 +57,12 @@ class QdrantStore:
     def delete_collection(self) -> None:
         self._client.delete_collection(self._collection)
 
+    def delete_by_filter(self, query_filter: models.Filter) -> None:
+        self._client.delete(self._collection, points_selector=query_filter, wait=True)
+
+    def count(self) -> int:
+        return self._client.count(self._collection, exact=True).count
+
     def upsert(self, points: Iterable[ChunkPoint]) -> None:
         structs = [
             models.PointStruct(
