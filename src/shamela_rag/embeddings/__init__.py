@@ -1,4 +1,7 @@
-"""Dense embedding providers (interface, in-memory test double, Qwen3 and BGE-M3 backends)."""
+"""Dense embedding providers (interface, in-memory test double, Qwen3 and BGE-M3 backends).
+
+Also exposes the surface-form BM25 sparse encoder (``Bm25Encoder``).
+"""
 
 from __future__ import annotations
 
@@ -9,6 +12,7 @@ from shamela_rag.embeddings.bge_m3 import (
     SparseEmbedding,
     lexical_weights_to_sparse,
 )
+from shamela_rag.embeddings.bm25 import Bm25Encoder, SparseVector, tokenize
 from shamela_rag.embeddings.provider import EmbeddingProvider, InMemoryEmbeddingProvider
 from shamela_rag.embeddings.qwen import (
     DEFAULT_EMBEDDING_DIMS,
@@ -22,6 +26,7 @@ __all__ = [
     "BGE_M3_DIMS",
     "BGE_M3_MODEL_ID",
     "BgeM3EmbeddingProvider",
+    "Bm25Encoder",
     "DEFAULT_EMBEDDING_DIMS",
     "DEFAULT_TASK_DESCRIPTION",
     "EmbeddingProvider",
@@ -29,6 +34,8 @@ __all__ = [
     "QWEN3_EMBEDDING_MODEL_ID",
     "Qwen3EmbeddingProvider",
     "SparseEmbedding",
+    "SparseVector",
     "format_qwen_query",
     "lexical_weights_to_sparse",
+    "tokenize",
 ]
