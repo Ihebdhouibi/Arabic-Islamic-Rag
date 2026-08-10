@@ -30,6 +30,9 @@ qwen = [
   "transformers>=4.51.0",
   "torch",
 ]
+bge = [
+  "FlagEmbedding>=1.2.10",
+]
 
 [project.scripts]
 shamela-rag = "shamela_rag.cli:main"
