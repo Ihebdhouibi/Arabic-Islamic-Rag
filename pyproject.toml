@@ -33,6 +33,9 @@ qwen = [
 bge = [
   "FlagEmbedding>=1.2.10",
 ]
+rerank = [
+  "sentence-transformers>=2.7.0",
+]
 
 [project.scripts]
 shamela-rag = "shamela_rag.cli:main"

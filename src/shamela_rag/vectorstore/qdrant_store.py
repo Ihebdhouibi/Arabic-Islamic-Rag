@@ -92,13 +92,19 @@ class QdrantStore:
         ).points
 
     def search_sparse(
-        self, indices: Sequence[int], values: Sequence[float], *, limit: int = 10
+        self,
+        indices: Sequence[int],
+        values: Sequence[float],
+        *,
+        limit: int = 10,
+        query_filter: models.Filter | None = None,
     ) -> list[models.ScoredPoint]:
         return self._client.query_points(
             self._collection,
             query=models.SparseVector(indices=list(indices), values=list(values)),
             using=_SPARSE,
             limit=limit,
+            query_filter=query_filter,
             with_payload=True,
         ).points
 
