@@ -5,6 +5,7 @@ from __future__ import annotations
 from shamela_rag.retrieval.dense import DenseRetriever
 from shamela_rag.retrieval.filters import RetrievalFilter
 from shamela_rag.retrieval.results import RetrievedChunk
+from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import (
     InMemoryTranslator,
     PreparedQuery,
@@ -21,6 +22,7 @@ __all__ = [
     "QueryLanguage",
     "RetrievalFilter",
     "RetrievedChunk",
+    "SparseRetriever",
     "Translator",
     "detect_query_language",
     "prepare_retrieval_query",
