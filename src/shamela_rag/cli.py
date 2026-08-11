@@ -1,14 +1,14 @@
 """Command-line entry point for the shamela-rag package.
 
-Currently exposes ``ingest`` (M3-08): select books by ``--book`` / ``--category`` / ``--all`` and
-run the per-book ingestion pipeline, with ``--limit``, ``--dry-run``, and ``--model``. The heavy
-embedding backends are imported lazily so ``--help`` and argument parsing stay fast and offline.
+Exposes ``ingest`` (M3-08) and ``validate-structure`` (M6-06). Heavy embedding backends are
+imported lazily so ``--help`` and argument parsing stay fast and offline.
 """
 
 from __future__ import annotations
 
 import argparse
 import logging
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -52,6 +52,43 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="Override the corpus root (default: SHAMELA_CORPUS_ROOT / config).",
+    )
+
+    validate = subcommands.add_parser(
+        "validate-structure",
+        help="Run structural chunking checks over a book or a corpus sample.",
+    )
+    validate.add_argument(
+        "--book-dir",
+        type=Path,
+        default=None,
+        help="Validate a single book directory (pages.jsonl + toc + metadata).",
+    )
+    validate.add_argument(
+        "--corpus-root",
+        type=Path,
+        default=None,
+        help="Corpus root to sample (default: SHAMELA_CORPUS_ROOT when --book-dir omitted).",
+    )
+    validate.add_argument(
+        "--book",
+        type=int,
+        metavar="ID",
+        default=None,
+        help="Restrict corpus validation to one book id.",
+    )
+    validate.add_argument(
+        "--category",
+        type=int,
+        metavar="ID",
+        default=None,
+        help="Restrict corpus validation to one category id.",
+    )
+    validate.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="Max books to validate under --corpus-root (default: 20; use 0 for no cap).",
     )
     return parser
 
@@ -122,12 +159,40 @@ def _build_service(model: str | None) -> IngestionService:
     return IngestionService(session_factory=get_sessionmaker(), store=store, embedder=embedder)
 
 
+def run_validate_structure(args: argparse.Namespace) -> int:
+    from shamela_rag.eval.structural import format_report, validate_book, validate_corpus
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    if args.book_dir is not None:
+        book_report = validate_book(args.book_dir)
+        print(format_report(book_report), end="")
+        return 0 if book_report.ok else 1
+
+    corpus_root = args.corpus_root or get_settings().corpus_root
+    limit = None if args.limit == 0 else args.limit
+    corpus_report = validate_corpus(
+        corpus_root,
+        limit=limit,
+        book_id=args.book,
+        category_id=args.category,
+    )
+    print(format_report(corpus_report), end="")
+    if not corpus_report.books:
+        logger.error("no matching books found under %s", corpus_root)
+        return 1
+    return 0 if corpus_report.ok else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = build_parser()
     args = parser.parse_args(argv)
     if args.command == "ingest":
         return run_ingest(args, _build_service(args.model))
+    if args.command == "validate-structure":
+        return run_validate_structure(args)
     parser.error(f"unknown command: {args.command}")  # required subparser makes this unreachable
     return 2
 
