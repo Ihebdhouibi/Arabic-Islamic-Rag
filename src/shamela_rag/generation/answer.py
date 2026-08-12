@@ -25,6 +25,8 @@ class Citation:
     author: str
     page: str
     content_role: str
+    category: int | None = None
+    snippet: str = ""
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,21 @@ def _payload_str(passage: ExpandedPassage, key: str) -> str:
 
 def _content_role(passage: ExpandedPassage) -> str:
     return _payload_str(passage, "content_role") or ContentRole.BODY.value
+
+
+_SNIPPET_MAX_CHARS = 200
+
+
+def _snippet(text: str) -> str:
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= _SNIPPET_MAX_CHARS:
+        return collapsed
+    return collapsed[:_SNIPPET_MAX_CHARS].rstrip() + "\u2026"
+
+
+def _category(passage: ExpandedPassage) -> int | None:
+    value = passage.payload.get("category_id")
+    return value if isinstance(value, int) else None
 
 
 def _to_prompt_passage(passage: ExpandedPassage) -> PromptPassage:
@@ -61,6 +78,8 @@ def _to_citation(marker: int, passage: ExpandedPassage) -> Citation:
         author=_payload_str(passage, "author"),
         page=_payload_str(passage, "page_id"),
         content_role=_content_role(passage),
+        category=_category(passage),
+        snippet=_snippet(passage.text),
     )
 
 

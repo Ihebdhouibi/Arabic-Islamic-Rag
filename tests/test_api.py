@@ -24,7 +24,9 @@ class _FakeQA:
 
 _ANSWER = Answer(
     text="قال الشافعي بالقياس",
-    citations=(Citation(1, 5, "الرسالة", "الشافعي", "42", "body"),),
+    citations=(
+        Citation(1, 5, "الرسالة", "الشافعي", "42", "body", category=16, snippet="قال الشافعي"),
+    ),
     deflected=False,
 )
 
@@ -57,7 +59,10 @@ def test_ask_returns_cited_answer() -> None:
             "book_title": "الرسالة",
             "author": "الشافعي",
             "page": "42",
+            "category": 16,
             "content_role": "body",
+            "is_footnote": False,
+            "snippet": "قال الشافعي",
         }
     ]
     assert fake.last_k == 3
@@ -70,6 +75,19 @@ def test_ask_passes_filters_through() -> None:
         json={"question": "سؤال", "filters": {"book_id": 7, "content_role": "body"}},
     )
     assert fake.last_filters == RetrievalFilter(book_id=7, content_role="body")
+
+
+def test_ask_footnote_citation_is_marked() -> None:
+    footnote = Answer(
+        text="جواب",
+        citations=(Citation(1, 9, "كتاب", "مؤلف", "3", "footnote", snippet="حاشية"),),
+        deflected=False,
+    )
+    body = _client(_FakeQA(footnote)).post("/ask", json={"question": "س"}).json()
+    citation = body["citations"][0]
+    assert citation["is_footnote"] is True
+    assert citation["content_role"] == "footnote"
+    assert citation["snippet"] == "حاشية"
 
 
 def test_ask_empty_question_is_422() -> None:

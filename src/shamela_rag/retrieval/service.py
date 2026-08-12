@@ -122,6 +122,7 @@ class RetrievalService:
                     text=chunk.source_text,
                     payload={
                         "book_id": chunk.book_id,
+                        "category_id": book.category_id,
                         "section_id": chunk.section_id,
                         "content_role": chunk.content_role,
                         "page_id": chunk.start_page_id,
