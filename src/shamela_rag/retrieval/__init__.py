@@ -26,6 +26,7 @@ from shamela_rag.retrieval.rerank import (
     Reranker,
 )
 from shamela_rag.retrieval.results import RetrievedChunk
+from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
 from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import (
     InMemoryTranslator,
@@ -54,7 +55,9 @@ __all__ = [
     "RerankCandidate",
     "RerankedChunk",
     "Reranker",
+    "RetrievalConfig",
     "RetrievalFilter",
+    "RetrievalService",
     "RetrievedChunk",
     "SparseRetriever",
     "TRANSCRIPT_BOOK_TYPE",
