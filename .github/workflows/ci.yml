@@ -65,4 +65,13 @@ jobs:
       - name: Apply migrations
         run: alembic upgrade head
       - name: Pytest
-        run: pytest -q
+        run: pytest -q --cov=shamela_rag --cov-report=term-missing --cov-report=xml
+      - name: Coverage summary
+        if: always()
+        run: |
+          {
+            echo "### Coverage"
+            echo '```'
+            coverage report
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

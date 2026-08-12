@@ -22,3 +22,8 @@ dist/
 
 # Local environment overrides (keep .env.example tracked)
 .env
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
