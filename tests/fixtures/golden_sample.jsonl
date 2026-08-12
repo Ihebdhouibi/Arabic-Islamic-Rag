@@ -1,0 +1,5 @@
+{"id": "g-001", "use_case": "GENERAL_QA", "query": "ما رأي الشافعي في مالك؟", "expected_sources": [{"book_title": "الرسالة", "internal_book_id": 10, "shamela_page_id": 5, "confidence": "verified"}, {"book_title": "الأم", "internal_book_id": 20, "shamela_page_id": 12, "confidence": "candidate"}]}
+{"id": "g-002", "use_case": "GENERAL_QA", "query": "ما حكم الوضوء؟", "expected_sources": [{"book_title": "المغني", "internal_book_id": 30, "shamela_page_id": 7, "confidence": "verified"}]}
+{"id": "g-003", "use_case": "GENERAL_QA", "query": "ما رأي الصحابة في الأسلحة النووية؟", "expected_sources": []}
+not-json-line
+{"id": "g-004", "query": "", "expected_sources": []}
