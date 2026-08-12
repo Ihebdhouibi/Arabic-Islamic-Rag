@@ -42,6 +42,9 @@ class Settings(BaseSettings):
     # Corpus location (the extracted Shamela4 dataset root)
     corpus_root: Path = Path(".")
 
+    # Persisted surface-BM25 encoder state (vocab/IDF), shared by ingestion and query retrieval.
+    bm25_state_path: Path = Path("bm25_state.json")
+
     # Chunking starting values (tuned in M6; see review_general_module_chunking_embeddings_brief.md)
     chunk_min_tokens: int = Field(default=128, gt=0)
     chunk_max_tokens: int = Field(default=768, gt=0)

@@ -8,13 +8,18 @@ query terms are binary, so a sparse dot product reproduces the BM25 score.
 
 from __future__ import annotations
 
+import json
 import math
 import re
 from collections import Counter
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
 
 from shamela_rag.text.normalization import normalize_for_index
+
+_STATE_VERSION = 1
 
 _TOKEN = re.compile(r"\w+", re.UNICODE)
 
@@ -111,3 +116,30 @@ class Bm25Encoder:
     def _require_fitted(self) -> None:
         if not self._fitted:
             raise RuntimeError("Bm25Encoder must be fit() before encoding")
+
+    def to_dict(self) -> dict[str, Any]:
+        self._require_fitted()
+        return {
+            "version": _STATE_VERSION,
+            "k1": self._k1,
+            "b": self._b,
+            "avgdl": self._avgdl,
+            "vocab": self._vocab,
+            "idf": self._idf,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> Bm25Encoder:
+        encoder = cls(k1=float(data["k1"]), b=float(data["b"]))
+        encoder._avgdl = float(data["avgdl"])
+        encoder._vocab = {str(term): int(idx) for term, idx in data["vocab"].items()}
+        encoder._idf = {str(term): float(weight) for term, weight in data["idf"].items()}
+        encoder._fitted = True
+        return encoder
+
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps(self.to_dict(), ensure_ascii=False), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: Path) -> Bm25Encoder:
+        return cls.from_dict(json.loads(path.read_text(encoding="utf-8")))
