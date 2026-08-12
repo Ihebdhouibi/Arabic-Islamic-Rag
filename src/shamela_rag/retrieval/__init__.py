@@ -1,8 +1,16 @@
-"""Retrieval pipeline pieces (query prep, dense/sparse search, fusion)."""
+"""Retrieval pipeline pieces (query prep, dense/sparse search, fusion, expansion)."""
 
 from __future__ import annotations
 
 from shamela_rag.retrieval.dense import DenseRetriever
+from shamela_rag.retrieval.expand import (
+    ChunkNotFoundError,
+    ContextExpander,
+    ExpandedChunkPart,
+    ExpandedPassage,
+    ExpandMode,
+    ExpansionConfig,
+)
 from shamela_rag.retrieval.filters import RetrievalFilter
 from shamela_rag.retrieval.fusion import FusedChunk, reciprocal_rank_fusion
 from shamela_rag.retrieval.rerank import (
@@ -24,8 +32,14 @@ from shamela_rag.retrieval.translate import (
 )
 
 __all__ = [
+    "ChunkNotFoundError",
+    "ContextExpander",
     "CrossEncoderReranker",
     "DenseRetriever",
+    "ExpandMode",
+    "ExpandedChunkPart",
+    "ExpandedPassage",
+    "ExpansionConfig",
     "FusedChunk",
     "InMemoryTranslator",
     "LexicalOverlapReranker",
