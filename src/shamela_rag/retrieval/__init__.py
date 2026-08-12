@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from shamela_rag.retrieval.authority import (
+    PRINTED_BOOK_TYPE,
+    TRANSCRIPT_BOOK_TYPE,
+    apply_authority_boost,
+)
 from shamela_rag.retrieval.dense import DenseRetriever
 from shamela_rag.retrieval.filters import RetrievalFilter
 from shamela_rag.retrieval.fusion import FusedChunk, reciprocal_rank_fusion
@@ -29,6 +34,7 @@ __all__ = [
     "FusedChunk",
     "InMemoryTranslator",
     "LexicalOverlapReranker",
+    "PRINTED_BOOK_TYPE",
     "PreparedQuery",
     "QueryLanguage",
     "RerankCandidate",
@@ -37,7 +43,9 @@ __all__ = [
     "RetrievalFilter",
     "RetrievedChunk",
     "SparseRetriever",
+    "TRANSCRIPT_BOOK_TYPE",
     "Translator",
+    "apply_authority_boost",
     "detect_query_language",
     "prepare_retrieval_query",
     "reciprocal_rank_fusion",
