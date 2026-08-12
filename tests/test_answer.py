@@ -98,3 +98,26 @@ def test_every_citation_maps_to_a_passage_chunk_id() -> None:
 def test_negative_min_passages_rejected() -> None:
     with pytest.raises(ValueError, match="min_passages"):
         AnswerAssembler(InMemoryGenerationProvider(), min_passages=-1)
+
+
+def test_citation_includes_category_and_bounded_snippet() -> None:
+    long_text = "كلمة " * 100
+    passage = ExpandedPassage(
+        hit_chunk_id=1,
+        score=1.0,
+        section_id=1,
+        chunk_ids=(1,),
+        text=long_text,
+        parts=(),
+        payload={
+            "book_title": "الكتاب",
+            "author": "المؤلف",
+            "page_id": 1,
+            "content_role": "body",
+            "category_id": 16,
+        },
+    )
+    citation = AnswerAssembler(InMemoryGenerationProvider()).assemble("q", [passage]).citations[0]
+    assert citation.category == 16
+    assert citation.snippet != ""
+    assert len(citation.snippet) <= 201  # 200 chars + ellipsis

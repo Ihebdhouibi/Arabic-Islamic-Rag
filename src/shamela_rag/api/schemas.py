@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+from shamela_rag.chunking.content_roles import ContentRole
 from shamela_rag.generation.answer import Answer
 
 
@@ -20,12 +21,15 @@ class AskRequest(BaseModel):
 
 
 class CitationOut(BaseModel):
-    marker: int
-    chunk_id: int
+    marker: int = Field(description="1-based source number matching the answer text.")
+    chunk_id: int = Field(description="Postgres chunk id this citation resolves to.")
     book_title: str
     author: str
     page: str
-    content_role: str
+    category: int | None = Field(default=None, description="Corpus category id of the book.")
+    content_role: str = Field(description="body or footnote.")
+    is_footnote: bool = Field(description="True for editor/muhaqqiq notes, not the author's words.")
+    snippet: str = Field(description="Short excerpt of the cited passage.")
 
 
 class AnswerResponse(BaseModel):
@@ -45,7 +49,10 @@ class AnswerResponse(BaseModel):
                     book_title=citation.book_title,
                     author=citation.author,
                     page=citation.page,
+                    category=citation.category,
                     content_role=citation.content_role,
+                    is_footnote=citation.content_role == ContentRole.FOOTNOTE.value,
+                    snippet=citation.snippet,
                 )
                 for citation in answer.citations
             ],
