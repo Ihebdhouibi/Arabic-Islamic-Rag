@@ -61,7 +61,9 @@ pytest                           # run the test suite
 ```
 
 Planning and design live in `docs/implementation/` (plan + issue backlog) and
-`docs/technical_docs/`. Contributor conventions are in [CLAUDE.md](CLAUDE.md).
+`docs/technical_docs/`. Contributor conventions — branch model, commit style, local setup, and the
+PR checklist — are in [CONTRIBUTING.md](CONTRIBUTING.md) (see also [CLAUDE.md](CLAUDE.md) for the AI
+working agreement).
 
 ### Local services
 

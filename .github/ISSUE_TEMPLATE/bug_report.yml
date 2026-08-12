@@ -1,0 +1,25 @@
+name: Bug report
+description: Report a defect in the RAG pipeline, ingestion, retrieval, or API.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Commands, inputs (question/book id), and config needed to reproduce.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, and whether Postgres/Qdrant were running (docker compose).
+    validations:
+      required: false

@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose a unit of work (milestone task or enhancement).
+labels: [enhancement]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: What should exist and why.
+    validations:
+      required: true
+  - type: textarea
+    id: done-when
+    attributes:
+      label: Done when
+      description: Acceptance criteria (what must be true to close this).
+    validations:
+      required: true
+  - type: input
+    id: depends-on
+    attributes:
+      label: Depends on
+      description: Other issues this depends on (optional).
+    validations:
+      required: false
