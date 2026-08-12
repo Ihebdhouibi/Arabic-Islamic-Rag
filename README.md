@@ -9,6 +9,10 @@ language and literature, and more).
 documentation, not a working implementation. See [docs/technical_docs/](docs/technical_docs/) for
 the full write-up.
 
+**Wiki:** project documentation for the general module lives in the
+[GitHub Wiki](https://github.com/Ihebdhouibi/Arabic-Islamic-Rag/wiki)
+(Home, Architecture, Setup, Ingestion, Retrieval, Generation/Citations, API, Contributing).
+
 ## What's here
 
 - [`docs/technical_docs/`](docs/technical_docs/) — a documentation series covering:
