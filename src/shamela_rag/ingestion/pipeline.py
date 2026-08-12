@@ -59,10 +59,14 @@ class IngestionService:
         session_factory: sessionmaker[Session],
         store: QdrantStore,
         embedder: EmbeddingProvider,
+        sparse_encoder: Bm25Encoder | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._store = store
         self._embedder = embedder
+        # A shared, pre-fitted encoder keeps sparse vectors comparable across books and matches
+        # the query-time encoder; when omitted, each book is fitted on its own chunks.
+        self._sparse_encoder = sparse_encoder
 
     def ingest_book(self, location: BookLocation, *, dry_run: bool = False) -> BookIngestSummary:
         if not location.has_all_files:
@@ -84,9 +88,12 @@ class IngestionService:
             )
             return BookIngestSummary(location.book_id, len(sections), len(chunks), 0, dry_run=True)
 
-        sparse_encoder = Bm25Encoder()
-        if chunks:
-            sparse_encoder.fit(chunk.retrieval_text for chunk in chunks)
+        if self._sparse_encoder is not None:
+            sparse_encoder = self._sparse_encoder
+        else:
+            sparse_encoder = Bm25Encoder()
+            if chunks:
+                sparse_encoder.fit(chunk.retrieval_text for chunk in chunks)
 
         self._store.ensure_collection()
         points = self._write_postgres_and_build_points(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import pytest
 
@@ -13,6 +14,29 @@ _CORPUS = [
     "قال مالك في الموطأ عن نافع عن ابن عمر",
     "باب الطهارة والوضوء وأحكام المياه",
 ]
+
+
+def test_bm25_state_roundtrips_through_save_load(tmp_path: Path) -> None:
+    encoder = Bm25Encoder().fit(_CORPUS)
+    path = tmp_path / "bm25.json"
+    encoder.save(path)
+
+    loaded = Bm25Encoder.load(path)
+    assert loaded.vocabulary_size == encoder.vocabulary_size
+    for text in [*_CORPUS, "ما رأي الشافعي في القياس"]:
+        assert loaded.encode_document(text) == encoder.encode_document(text)
+        assert loaded.encode_query(text) == encoder.encode_query(text)
+
+
+def test_bm25_from_dict_matches_original() -> None:
+    encoder = Bm25Encoder().fit(_CORPUS)
+    clone = Bm25Encoder.from_dict(encoder.to_dict())
+    assert clone.encode_query("الشافعي القياس") == encoder.encode_query("الشافعي القياس")
+
+
+def test_bm25_to_dict_requires_fit() -> None:
+    with pytest.raises(RuntimeError, match="fit"):
+        Bm25Encoder().to_dict()
 
 
 def _dot(query: SparseVector, document: SparseVector) -> float:
