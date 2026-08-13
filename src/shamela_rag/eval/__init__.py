@@ -2,6 +2,12 @@
 
 from __future__ import annotations
 
+from shamela_rag.eval.comparison import (
+    ComparisonReport,
+    RunConfig,
+    format_comparison,
+    run_comparison,
+)
 from shamela_rag.eval.dataset import (
     GoldenExample,
     GoldenSource,
@@ -23,19 +29,23 @@ from shamela_rag.eval.metrics import (
 
 __all__ = [
     "AggregateScore",
+    "ComparisonReport",
     "EvalReport",
     "GoldenExample",
     "GoldenSource",
     "QueryScore",
+    "RunConfig",
     "aggregate",
     "book_ids_from_hits",
     "dcg_at_k",
     "evaluate_retrieval",
+    "format_comparison",
     "hit_at_k",
     "load_golden_dataset",
     "ndcg_at_k",
     "precision_at_k",
     "recall_at_k",
     "reciprocal_rank",
+    "run_comparison",
     "score_query",
 ]
