@@ -110,6 +110,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="State file path (default: config bm25_state_path).",
     )
+
+    ask = subcommands.add_parser("ask", help="Answer a question against the ingested corpus.")
+    ask.add_argument("question", help="The question (Arabic or English).")
+    ask.add_argument("--k", type=int, default=None, help="Number of passages to cite.")
+    ask.add_argument("--book", type=int, metavar="ID", default=None, help="Restrict to one book.")
+    ask.add_argument(
+        "--category", type=int, metavar="ID", default=None, help="Restrict to one category."
+    )
+    ask.add_argument(
+        "--model", choices=("bge-m3", "qwen3"), default=None, help="Dense embedding backend."
+    )
+    ask.add_argument(
+        "--no-rerank",
+        action="store_true",
+        help="Skip the cross-encoder (offline lexical reranker).",
+    )
+    ask.add_argument("--json", action="store_true", help="Emit the answer as JSON.")
     return parser
 
 
@@ -240,6 +257,61 @@ def run_validate_structure(args: argparse.Namespace) -> int:
     return 0 if corpus_report.ok else 1
 
 
+def run_ask(args: argparse.Namespace) -> int:
+    import json as _json
+
+    from shamela_rag.factory import build_general_qa_service
+    from shamela_rag.retrieval.filters import RetrievalFilter
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    reranker = None
+    if args.no_rerank:
+        from shamela_rag.retrieval.rerank import LexicalOverlapReranker
+
+        reranker = LexicalOverlapReranker()
+
+    service = build_general_qa_service(model=args.model or "bge-m3", reranker=reranker)
+    filters = None
+    if args.book is not None or args.category is not None:
+        filters = RetrievalFilter(book_id=args.book, category_id=args.category)
+
+    answer = service.answer(args.question, k=args.k, filters=filters)
+    if args.json:
+        print(
+            _json.dumps(
+                {
+                    "answer": answer.text,
+                    "deflected": answer.deflected,
+                    "citations": [
+                        {
+                            "marker": c.marker,
+                            "chunk_id": c.chunk_id,
+                            "book_title": c.book_title,
+                            "author": c.author,
+                            "page": c.page,
+                            "content_role": c.content_role,
+                        }
+                        for c in answer.citations
+                    ],
+                },
+                ensure_ascii=False,
+                indent=2,
+            )
+        )
+        return 0
+
+    print(answer.text)
+    for citation in answer.citations:
+        footnote = " [footnote]" if citation.content_role == "footnote" else ""
+        print(
+            f"[{citation.marker}] {citation.book_title} - {citation.author} "
+            f"(p.{citation.page}){footnote}"
+        )
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
     parser = build_parser()
@@ -250,6 +322,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_validate_structure(args)
     if args.command == "build-bm25":
         return run_build_bm25(args)
+    if args.command == "ask":
+        return run_ask(args)
     parser.error(f"unknown command: {args.command}")  # required subparser makes this unreachable
     return 2
 
