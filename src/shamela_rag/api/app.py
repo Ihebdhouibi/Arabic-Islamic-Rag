@@ -57,3 +57,10 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
 
 
 app = create_app()
+
+
+def create_app_from_settings() -> FastAPI:
+    """App with the real QA service wired from config (loads heavy backends). For ``uvicorn``."""
+    from shamela_rag.factory import build_general_qa_service
+
+    return create_app(build_general_qa_service())

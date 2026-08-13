@@ -74,6 +74,9 @@ docker compose up -d      # Postgres on :5433, Qdrant on :6333/:6334
 docker compose down       # stop (add -v to also drop the data volumes)
 ```
 
+To install the model backends, ingest books, and query with cited answers, follow
+[docs/technical_docs/general_module_runbook.md](docs/technical_docs/general_module_runbook.md).
+
 Credentials and ports default to a local dev profile and can be overridden in a `.env` file
 (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `QDRANT_HTTP_PORT`,
 `QDRANT_GRPC_PORT`). Requires Docker Desktop on the Linux engine.
