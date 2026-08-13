@@ -114,3 +114,14 @@ def test_answer_general_question_is_cited_end_to_end(world: _World) -> None:
             chunk = session.get(Chunk, citation.chunk_id)
             assert chunk is not None, f"citation {citation.chunk_id} does not resolve to a chunk"
             assert chunk.book_id == _BOOK_ID
+
+
+def test_answer_with_retrieval_returns_passage_scores(world: _World) -> None:
+    answer, passages = world.qa.answer_with_retrieval(_query(world.engine))
+
+    assert not answer.deflected
+    assert passages
+    assert all(isinstance(passage.score, float) for passage in passages)
+    assert {citation.chunk_id for citation in answer.citations} == {
+        passage.hit_chunk_id for passage in passages
+    }

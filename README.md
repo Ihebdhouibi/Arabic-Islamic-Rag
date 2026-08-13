@@ -78,6 +78,21 @@ Credentials and ports default to a local dev profile and can be overridden in a 
 (`POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, `POSTGRES_PORT`, `QDRANT_HTTP_PORT`,
 `QDRANT_GRPC_PORT`). Requires Docker Desktop on the Linux engine.
 
+### Streamlit demo (interactive QA)
+
+After Postgres + Qdrant are up, a book is ingested, and BM25 state is built:
+
+```bash
+pip install -e ".[demo,bge,rerank]"
+shamela-rag build-bm25 --book <id>
+shamela-rag ingest --book <id>
+streamlit run demo/streamlit_app.py
+```
+
+Read-only UI: question (Arabic or English), optional book/category filters, grounded answer,
+citations (book, author, page, snippet, footnote flag), and retrieval diagnostics (scores,
+deflection) via ``GeneralQAService``.
+
 ## Citation
 
 If you use the underlying dataset, please cite it (and the original Shamela library) as follows —
