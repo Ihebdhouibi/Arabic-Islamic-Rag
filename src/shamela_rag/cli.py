@@ -90,6 +90,26 @@ def build_parser() -> argparse.ArgumentParser:
         default=20,
         help="Max books to validate under --corpus-root (default: 20; use 0 for no cap).",
     )
+
+    build_bm25 = subcommands.add_parser(
+        "build-bm25", help="Fit a corpus-wide surface-BM25 encoder and persist it."
+    )
+    bm25_target = build_bm25.add_mutually_exclusive_group(required=True)
+    bm25_target.add_argument("--book", type=int, metavar="ID", help="Fit over a single book id.")
+    bm25_target.add_argument(
+        "--category", type=int, metavar="ID", help="Fit over every book in a category."
+    )
+    bm25_target.add_argument("--all", action="store_true", help="Fit over the entire corpus.")
+    build_bm25.add_argument("--limit", type=int, default=None, help="Cap the number of books.")
+    build_bm25.add_argument(
+        "--corpus-root", type=Path, default=None, help="Override the corpus root."
+    )
+    build_bm25.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="State file path (default: config bm25_state_path).",
+    )
     return parser
 
 
@@ -148,6 +168,7 @@ def _build_embedder(model: str | None) -> EmbeddingProvider:
 
 def _build_service(model: str | None) -> IngestionService:
     from shamela_rag.db.engine import get_sessionmaker
+    from shamela_rag.embeddings.bm25 import Bm25Encoder
     from shamela_rag.ingestion.pipeline import IngestionService
     from shamela_rag.vectorstore.qdrant_store import QdrantStore
 
@@ -156,7 +177,41 @@ def _build_service(model: str | None) -> IngestionService:
     store = QdrantStore(
         url=settings.qdrant_url, collection=settings.qdrant_collection, dense_dim=embedder.dims
     )
-    return IngestionService(session_factory=get_sessionmaker(), store=store, embedder=embedder)
+    # Reuse a persisted corpus-wide BM25 encoder when present so sparse vectors stay comparable.
+    state_path = settings.bm25_state_path
+    encoder = Bm25Encoder.load(state_path) if state_path.exists() else None
+    if encoder is not None:
+        logger.info("using persisted BM25 encoder from %s", state_path)
+    return IngestionService(
+        session_factory=get_sessionmaker(), store=store, embedder=embedder, sparse_encoder=encoder
+    )
+
+
+def run_build_bm25(args: argparse.Namespace) -> int:
+    from shamela_rag.ingestion.bm25_fit import fit_corpus_bm25
+
+    settings = get_settings()
+    corpus_root = args.corpus_root or settings.corpus_root
+    locations = _select_locations(args, corpus_root)
+    if not locations:
+        logger.error("no matching books found under %s", corpus_root)
+        return 1
+
+    try:
+        encoder = fit_corpus_bm25([location.book_dir for location in locations])
+    except ValueError:
+        logger.error("no chunkable content in the selected books; nothing to fit")
+        return 1
+
+    output = args.output or settings.bm25_state_path
+    encoder.save(output)
+    logger.info(
+        "fitted BM25 over %d book(s), %d terms -> %s",
+        len(locations),
+        encoder.vocabulary_size,
+        output,
+    )
+    return 0
 
 
 def run_validate_structure(args: argparse.Namespace) -> int:
@@ -193,6 +248,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_ingest(args, _build_service(args.model))
     if args.command == "validate-structure":
         return run_validate_structure(args)
+    if args.command == "build-bm25":
+        return run_build_bm25(args)
     parser.error(f"unknown command: {args.command}")  # required subparser makes this unreachable
     return 2
 
