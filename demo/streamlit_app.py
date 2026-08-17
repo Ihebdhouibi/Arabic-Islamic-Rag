@@ -14,8 +14,8 @@ import streamlit as st
 
 from shamela_rag.chunking.content_roles import ContentRole
 from shamela_rag.demo.wiring import build_general_qa_service
+from shamela_rag.factory import build_generation_provider
 from shamela_rag.generation.answer import Answer
-from shamela_rag.generation.provider import InMemoryGenerationProvider
 from shamela_rag.generation.service import GeneralQAService
 from shamela_rag.retrieval.expand import ExpandedPassage
 from shamela_rag.retrieval.filters import RetrievalFilter
@@ -63,7 +63,7 @@ class _Turn:
 def _get_qa_service() -> GeneralQAService:
     if "qa_service" not in st.session_state:
         st.session_state.qa_service = build_general_qa_service(
-            generation_provider=InMemoryGenerationProvider()
+            generation_provider=build_generation_provider()
         )
     return st.session_state.qa_service
 

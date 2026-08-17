@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,6 +39,17 @@ class Settings(BaseSettings):
     # Models (final dense model chosen by the M6 benchmark)
     dense_embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
+
+    # Local generation (default: in-memory stub; CI stays offline)
+    llm_backend: Literal["memory", "llamacpp", "ollama"] = "memory"
+    llm_gguf_path: Path | None = None
+    llm_ollama_url: str = "http://localhost:11434"
+    llm_ollama_model: str = ""
+    llm_max_tokens: int = Field(default=512, gt=0)
+    llm_temperature: float = Field(default=0.1, ge=0)
+    llm_n_ctx: int = Field(default=4096, gt=0)
+    llm_n_threads: int | None = None
+    llm_n_gpu_layers: int = Field(default=0, ge=0)
 
     # Corpus location (the extracted Shamela4 dataset root)
     corpus_root: Path = Path(".")

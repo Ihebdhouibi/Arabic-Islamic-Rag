@@ -97,14 +97,34 @@ curl -s -X POST localhost:8000/ask -H "content-type: application/json" \
 The response is a grounded answer plus structured citations (book, author, page, category, snippet,
 `is_footnote`), each resolving to a real chunk.
 
-## 7. What you get, and the generation caveat
+## 7. What you get, and local generation
 
 - Real **retrieval**: BGE-M3 (or Qwen3) dense + surface-BM25 sparse -> RRF -> cross-encoder rerank
   -> authority boost -> parent/neighbor expansion, with citations mapped to Postgres provenance.
-- **Answer text** uses the deterministic in-memory generation stub by default. To get real prose,
-  implement a `GenerationProvider` against an LLM (local weights or an OpenAI-compatible API) and
-  inject it — the retrieval/citation layer is unchanged. A 7-8 B chat model also needs a GPU or a
-  hosted API.
+- **Answer text** defaults to the in-memory stub (`SHAMELA_LLM_BACKEND=memory`). For real prose,
+  use a local model (no external API). `ask`, `/ask`, and Streamlit read these env vars.
+
+### 7.1 Ollama (easiest on Windows)
+
+```bash
+ollama pull qwen2.5:3b          # ~2 GB; or qwen2.5:7b ~4.7 GB
+$env:SHAMELA_LLM_BACKEND = "ollama"
+$env:SHAMELA_LLM_OLLAMA_MODEL = "qwen2.5:3b"
+```
+
+Ollama must be running on `http://localhost:11434`. No Python extra.
+
+### 7.2 llama.cpp GGUF
+
+```bash
+pip install -e ".[llm]"
+$env:SHAMELA_LLM_BACKEND = "llamacpp"
+$env:SHAMELA_LLM_GGUF_PATH = "D:\models\Qwen2.5-7B-Instruct-Q4_K_M.gguf"
+$env:SHAMELA_LLM_N_GPU_LAYERS = "0"
+```
+
+Download a Q4_K_M instruct GGUF (e.g. Qwen2.5-7B-Instruct, ~4.7 GB / ~5-8 GB RAM). If
+`llama-cpp-python` fails to build, use Ollama.
 
 ## 8. Evaluate (optional)
 
