@@ -25,6 +25,7 @@ from shamela_rag.retrieval.expand import ContextExpander, ExpandedPassage, Expan
 from shamela_rag.retrieval.filters import RetrievalFilter
 from shamela_rag.retrieval.fusion import reciprocal_rank_fusion
 from shamela_rag.retrieval.rerank import RerankCandidate, Reranker
+from shamela_rag.retrieval.results import RetrievedChunk
 from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import Translator, prepare_retrieval_query
 
@@ -41,6 +42,7 @@ class RetrievalConfig:
     printed_boost: float = DEFAULT_PRINTED_BOOST
     transcript_penalty: float = DEFAULT_TRANSCRIPT_PENALTY
     expansion: ExpansionConfig = field(default_factory=ExpansionConfig)
+    use_root_expansion: bool = False
 
 
 class RetrievalService:
@@ -54,6 +56,7 @@ class RetrievalService:
         expander: ContextExpander,
         session_factory: sessionmaker[Session],
         config: RetrievalConfig | None = None,
+        root_retriever: SparseRetriever | None = None,
     ) -> None:
         self._translator = translator
         self._dense = dense_retriever
@@ -62,6 +65,7 @@ class RetrievalService:
         self._expander = expander
         self._session_factory = session_factory
         self._config = config or RetrievalConfig()
+        self._root = root_retriever
 
     def retrieve(
         self,
@@ -78,7 +82,10 @@ class RetrievalService:
 
         dense = self._dense.search(query, limit=cfg.candidate_limit, filters=filters)
         sparse = self._sparse.search(query, limit=cfg.candidate_limit, filters=filters)
-        fused = reciprocal_rank_fusion([dense, sparse], k=cfg.rrf_k, limit=cfg.rerank_input_limit)
+        lists: list[Sequence[RetrievedChunk]] = [dense, sparse]
+        if cfg.use_root_expansion and self._root is not None:
+            lists.append(self._root.search(query, limit=cfg.candidate_limit, filters=filters))
+        fused = reciprocal_rank_fusion(lists, k=cfg.rrf_k, limit=cfg.rerank_input_limit)
         candidates = self._hydrate([hit.chunk_id for hit in fused])
         if not candidates:
             return []

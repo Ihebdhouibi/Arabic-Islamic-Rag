@@ -199,8 +199,24 @@ def _build_service(model: str | None) -> IngestionService:
     encoder = Bm25Encoder.load(state_path) if state_path.exists() else None
     if encoder is not None:
         logger.info("using persisted BM25 encoder from %s", state_path)
+    root_encoder = None
+    if settings.root_expansion_enabled:
+        from shamela_rag.data.root_dictionary import load_root_dictionary
+        from shamela_rag.embeddings.root_field import RootExpansionEncoder
+
+        dict_path = settings.root_dictionary_path
+        if not dict_path.is_absolute():
+            dict_path = settings.corpus_root / dict_path
+        root_encoder = RootExpansionEncoder(
+            load_root_dictionary(dict_path), weight=settings.root_expansion_weight
+        )
+        logger.info("root expansion enabled from %s", dict_path)
     return IngestionService(
-        session_factory=get_sessionmaker(), store=store, embedder=embedder, sparse_encoder=encoder
+        session_factory=get_sessionmaker(),
+        store=store,
+        embedder=embedder,
+        sparse_encoder=encoder,
+        root_encoder=root_encoder,
     )
 
 
