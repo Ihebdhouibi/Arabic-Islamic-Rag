@@ -2,8 +2,8 @@
 
 Loads ``_meta/root_dictionary.jsonl`` (~1.95M lines of
 ``{"token": "<form>", "roots": ["...", ...]}``) into an in-memory lookup.
-This module is the lookup only; the separate low-weight sparse expansion field
-that *uses* it is a later issue (#31).
+This module is the lookup only; the gated sparse expansion field that uses it
+lives in ``shamela_rag.embeddings.root_field``.
 """
 
 from __future__ import annotations
@@ -35,6 +35,9 @@ class RootDictionary:
     def lookup(self, token: str) -> tuple[str, ...]:
         """Return root(s) for ``token``, or an empty tuple if unknown."""
         return self._by_token.get(token, ())
+
+    def items(self) -> Iterator[tuple[str, tuple[str, ...]]]:
+        return iter(self._by_token.items())
 
 
 def _parse_entry(obj: dict[str, Any]) -> tuple[str, tuple[str, ...]] | None:

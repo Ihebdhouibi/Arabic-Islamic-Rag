@@ -17,6 +17,8 @@ from shamela_rag.config import get_settings
 
 _DENSE = "dense"
 _SPARSE = "sparse"
+_ROOT = "root"
+ROOT_VECTOR_NAME = _ROOT
 
 
 @dataclass
@@ -25,6 +27,8 @@ class ChunkPoint:
     dense: Sequence[float]
     sparse_indices: Sequence[int] = field(default_factory=list)
     sparse_values: Sequence[float] = field(default_factory=list)
+    root_sparse_indices: Sequence[int] = field(default_factory=list)
+    root_sparse_values: Sequence[float] = field(default_factory=list)
     payload: dict[str, Any] = field(default_factory=dict)
 
 
@@ -46,7 +50,10 @@ class QdrantStore:
             vectors_config={
                 _DENSE: models.VectorParams(size=self._dense_dim, distance=models.Distance.COSINE)
             },
-            sparse_vectors_config={_SPARSE: models.SparseVectorParams()},
+            sparse_vectors_config={
+                _SPARSE: models.SparseVectorParams(),
+                _ROOT: models.SparseVectorParams(),
+            },
         )
         # Index the fields the general module filters on.
         for field_name in ("book_id", "category_id", "content_role"):
@@ -67,12 +74,7 @@ class QdrantStore:
         structs = [
             models.PointStruct(
                 id=point.point_id,
-                vector={
-                    _DENSE: list(point.dense),
-                    _SPARSE: models.SparseVector(
-                        indices=list(point.sparse_indices), values=list(point.sparse_values)
-                    ),
-                },
+                vector=_point_vectors(point),
                 payload=point.payload,
             )
             for point in points
@@ -98,15 +100,30 @@ class QdrantStore:
         *,
         limit: int = 10,
         query_filter: models.Filter | None = None,
+        vector_name: str = _SPARSE,
     ) -> list[models.ScoredPoint]:
         return self._client.query_points(
             self._collection,
             query=models.SparseVector(indices=list(indices), values=list(values)),
-            using=_SPARSE,
+            using=vector_name,
             limit=limit,
             query_filter=query_filter,
             with_payload=True,
         ).points
+
+
+def _point_vectors(point: ChunkPoint) -> dict[str, Any]:
+    vectors: dict[str, Any] = {
+        _DENSE: list(point.dense),
+        _SPARSE: models.SparseVector(
+            indices=list(point.sparse_indices), values=list(point.sparse_values)
+        ),
+    }
+    if point.root_sparse_indices:
+        vectors[_ROOT] = models.SparseVector(
+            indices=list(point.root_sparse_indices), values=list(point.root_sparse_values)
+        )
+    return vectors
 
 
 def get_qdrant_store() -> QdrantStore:
