@@ -18,6 +18,7 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.postgres_dsn == "postgresql://shamela:shamela@localhost:5433/shamela_rag"
     assert s.chunk_min_tokens < s.chunk_max_tokens
     assert s.root_expansion_enabled is False
+    assert s.root_expansion_state_path.name == "root_expansion_state.json"
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

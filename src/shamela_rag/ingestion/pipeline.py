@@ -71,6 +71,10 @@ class IngestionService:
         self._sparse_encoder = sparse_encoder
         self._root_encoder = root_encoder
 
+    @property
+    def root_encoder(self) -> RootExpansionEncoder | None:
+        return self._root_encoder
+
     def ingest_book(self, location: BookLocation, *, dry_run: bool = False) -> BookIngestSummary:
         if not location.has_all_files:
             logger.warning("skipping book %s: missing required files", location.book_id)

@@ -73,6 +73,14 @@ def test_root_query_matches_variant_surface_does_not(encoder: RootExpansionEncod
     assert _dot(encoder.encode_query(_QUERY_VARIANT), encoder.encode_document(_DOC_SALAH)) > 0.0
 
 
+def test_root_encoder_state_roundtrips(encoder: RootExpansionEncoder, tmp_path: Path) -> None:
+    path = tmp_path / "root_expansion_state.json"
+    encoder.save(path)
+    loaded = RootExpansionEncoder.load(path, load_root_dictionary(_FIXTURE))
+    assert loaded.encode_query(_QUERY_VARIANT) == encoder.encode_query(_QUERY_VARIANT)
+    assert loaded.encode_document(_DOC_SALAH) == encoder.encode_document(_DOC_SALAH)
+
+
 def test_ab_hook_skips_root_when_disabled() -> None:
     root = _FakeRetriever()
     assert _service(root, use_root=False).retrieve("سؤال") == []

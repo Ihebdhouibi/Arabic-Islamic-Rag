@@ -170,6 +170,15 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
     logger.info(
         "done: %d book(s), %d chunks, %d points", len(locations), total_chunks, total_points
     )
+    settings = get_settings()
+    if (
+        not args.dry_run
+        and settings.root_expansion_enabled
+        and service.root_encoder is not None
+        and service.root_encoder.is_fitted
+    ):
+        service.root_encoder.save(settings.root_expansion_state_path)
+        logger.info("wrote root expansion state to %s", settings.root_expansion_state_path)
     return 0
 
 
@@ -204,13 +213,14 @@ def _build_service(model: str | None) -> IngestionService:
         from shamela_rag.data.root_dictionary import load_root_dictionary
         from shamela_rag.embeddings.root_field import RootExpansionEncoder
 
-        dict_path = settings.root_dictionary_path
-        if not dict_path.is_absolute():
-            dict_path = settings.corpus_root / dict_path
-        root_encoder = RootExpansionEncoder(
-            load_root_dictionary(dict_path), weight=settings.root_expansion_weight
-        )
-        logger.info("root expansion enabled from %s", dict_path)
+        dictionary = load_root_dictionary(settings.resolved_root_dictionary_path)
+        root_state = settings.root_expansion_state_path
+        if root_state.exists():
+            root_encoder = RootExpansionEncoder.load(root_state, dictionary)
+            logger.info("using persisted root expansion encoder from %s", root_state)
+        else:
+            root_encoder = RootExpansionEncoder(dictionary, weight=settings.root_expansion_weight)
+            logger.info("root expansion enabled from %s", settings.resolved_root_dictionary_path)
     return IngestionService(
         session_factory=get_sessionmaker(),
         store=store,

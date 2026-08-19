@@ -7,11 +7,16 @@ variants can match without polluting the primary surface field.
 
 from __future__ import annotations
 
-from collections.abc import Iterable
+import json
+from collections.abc import Iterable, Mapping
+from pathlib import Path
+from typing import Any
 
 from shamela_rag.data.root_dictionary import RootDictionary
 from shamela_rag.embeddings.bm25 import Bm25Encoder, SparseVector, tokenize
 from shamela_rag.text.normalization import normalize_for_index
+
+_STATE_VERSION = 1
 
 DEFAULT_ROOT_EXPANSION_WEIGHT = 0.25
 
@@ -69,6 +74,26 @@ class RootExpansionEncoder:
         return SparseVector(
             indices=vector.indices, values=[value * self._weight for value in vector.values]
         )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "version": _STATE_VERSION,
+            "weight": self._weight,
+            "bm25": self._bm25.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, dictionary: RootDictionary, data: Mapping[str, Any]) -> RootExpansionEncoder:
+        encoder = cls(dictionary, weight=float(data["weight"]))
+        encoder._bm25 = Bm25Encoder.from_dict(data["bm25"])
+        return encoder
+
+    def save(self, path: Path) -> None:
+        path.write_text(json.dumps(self.to_dict(), ensure_ascii=False), encoding="utf-8")
+
+    @classmethod
+    def load(cls, path: Path, dictionary: RootDictionary) -> RootExpansionEncoder:
+        return cls.from_dict(dictionary, json.loads(path.read_text(encoding="utf-8")))
 
 
 def _index_by_folded(dictionary: RootDictionary) -> dict[str, tuple[str, ...]]:
