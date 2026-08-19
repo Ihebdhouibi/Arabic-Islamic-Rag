@@ -26,6 +26,7 @@ from shamela_rag.data.models import load_book, load_toc
 from shamela_rag.db.models import Book, Chunk, Section
 from shamela_rag.embeddings.bm25 import Bm25Encoder
 from shamela_rag.embeddings.provider import EmbeddingProvider
+from shamela_rag.embeddings.root_field import RootExpansionEncoder
 from shamela_rag.vectorstore.qdrant_store import ChunkPoint, QdrantStore
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class IngestionService:
         store: QdrantStore,
         embedder: EmbeddingProvider,
         sparse_encoder: Bm25Encoder | None = None,
+        root_encoder: RootExpansionEncoder | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._store = store
@@ -67,6 +69,11 @@ class IngestionService:
         # A shared, pre-fitted encoder keeps sparse vectors comparable across books and matches
         # the query-time encoder; when omitted, each book is fitted on its own chunks.
         self._sparse_encoder = sparse_encoder
+        self._root_encoder = root_encoder
+
+    @property
+    def root_encoder(self) -> RootExpansionEncoder | None:
+        return self._root_encoder
 
     def ingest_book(self, location: BookLocation, *, dry_run: bool = False) -> BookIngestSummary:
         if not location.has_all_files:
@@ -95,9 +102,13 @@ class IngestionService:
             if chunks:
                 sparse_encoder.fit(chunk.retrieval_text for chunk in chunks)
 
+        root_encoder = self._root_encoder
+        if root_encoder is not None and not root_encoder.is_fitted and chunks:
+            root_encoder.fit(chunk.retrieval_text for chunk in chunks)
+
         self._store.ensure_collection()
         points = self._write_postgres_and_build_points(
-            book_meta, location, sections, chunks, sparse_encoder
+            book_meta, location, sections, chunks, sparse_encoder, root_encoder
         )
         self._replace_qdrant_points(location.book_id, points)
 
@@ -154,6 +165,7 @@ class IngestionService:
         sections: list[ChunkSection],
         chunks: list[BookChunk],
         sparse_encoder: Bm25Encoder,
+        root_encoder: RootExpansionEncoder | None = None,
     ) -> list[ChunkPoint]:
         dense_vectors = self._embedder.embed_documents([dense_input(c) for c in chunks])
         with self._session_factory() as session, session.begin():
@@ -165,7 +177,9 @@ class IngestionService:
                 session, location.book_id, chunks, section_id_by_trail, book_meta
             )
             session.flush()
-            points = self._build_points(location, chunks, chunk_rows, dense_vectors, sparse_encoder)
+            points = self._build_points(
+                location, chunks, chunk_rows, dense_vectors, sparse_encoder, root_encoder
+            )
         return points
 
     @staticmethod
@@ -257,16 +271,24 @@ class IngestionService:
         chunk_rows: list[Chunk],
         dense_vectors: list[list[float]],
         sparse_encoder: Bm25Encoder,
+        root_encoder: RootExpansionEncoder | None = None,
     ) -> list[ChunkPoint]:
         points: list[ChunkPoint] = []
         for chunk, row, dense in zip(chunks, chunk_rows, dense_vectors, strict=True):
             sparse = sparse_encoder.encode_document(chunk.retrieval_text)
+            root = (
+                root_encoder.encode_document(chunk.retrieval_text)
+                if root_encoder is not None
+                else None
+            )
             points.append(
                 ChunkPoint(
                     point_id=row.id,
                     dense=dense,
                     sparse_indices=sparse.indices,
                     sparse_values=sparse.values,
+                    root_sparse_indices=root.indices if root is not None else (),
+                    root_sparse_values=root.values if root is not None else (),
                     payload={
                         "chunk_id": row.id,
                         "book_id": location.book_id,
