@@ -8,12 +8,13 @@ answer generation. Heavy backends load lazily and can be injected (tests pass of
 from __future__ import annotations
 
 from pathlib import Path
+from typing import assert_never
 
 from shamela_rag.config import Settings, get_settings
 from shamela_rag.embeddings.bm25 import Bm25Encoder
 from shamela_rag.embeddings.provider import EmbeddingProvider
 from shamela_rag.embeddings.root_field import RootExpansionEncoder
-from shamela_rag.generation.provider import GenerationProvider, InMemoryGenerationProvider
+from shamela_rag.generation.provider import GenerationProvider
 from shamela_rag.generation.service import GeneralQAService
 from shamela_rag.retrieval.rerank import Reranker
 from shamela_rag.retrieval.translate import Translator
@@ -28,6 +29,41 @@ def build_embedder(model: str | None) -> EmbeddingProvider:
     from shamela_rag.embeddings.bge_m3 import BgeM3EmbeddingProvider
 
     return BgeM3EmbeddingProvider()
+
+
+def build_generation_provider() -> GenerationProvider:
+    """In-memory stub, llama.cpp GGUF, or local Ollama — from ``SHAMELA_LLM_*`` settings."""
+    settings = get_settings()
+    backend = settings.llm_backend
+    if backend == "memory":
+        from shamela_rag.generation.provider import InMemoryGenerationProvider
+
+        return InMemoryGenerationProvider()
+    if backend == "llamacpp":
+        if settings.llm_gguf_path is None:
+            raise ValueError("SHAMELA_LLM_GGUF_PATH is required when SHAMELA_LLM_BACKEND=llamacpp")
+        from shamela_rag.generation.local import LlamaCppGenerationProvider
+
+        return LlamaCppGenerationProvider(
+            settings.llm_gguf_path,
+            max_tokens=settings.llm_max_tokens,
+            temperature=settings.llm_temperature,
+            n_ctx=settings.llm_n_ctx,
+            n_threads=settings.llm_n_threads,
+            n_gpu_layers=settings.llm_n_gpu_layers,
+        )
+    if backend == "ollama":
+        if not settings.llm_ollama_model.strip():
+            raise ValueError("SHAMELA_LLM_OLLAMA_MODEL is required when SHAMELA_LLM_BACKEND=ollama")
+        from shamela_rag.generation.local import OllamaGenerationProvider
+
+        return OllamaGenerationProvider(
+            settings.llm_ollama_model,
+            base_url=settings.llm_ollama_url,
+            max_tokens=settings.llm_max_tokens,
+            temperature=settings.llm_temperature,
+        )
+    assert_never(backend)
 
 
 def build_general_qa_service(
@@ -74,7 +110,7 @@ def build_general_qa_service(
         config=RetrievalConfig(use_root_expansion=root_retriever is not None),
         root_retriever=root_retriever,
     )
-    assembler = AnswerAssembler(generation_provider or InMemoryGenerationProvider())
+    assembler = AnswerAssembler(generation_provider or build_generation_provider())
     return GeneralQAService(retrieval_service=retrieval, assembler=assembler)
 
 

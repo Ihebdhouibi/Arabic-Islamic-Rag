@@ -43,6 +43,9 @@ bge = [
 rerank = [
   "sentence-transformers>=2.7.0",
 ]
+llm = [
+  "llama-cpp-python>=0.2.90",
+]
 
 [project.scripts]
 shamela-rag = "shamela_rag.cli:main"
