@@ -57,11 +57,23 @@ class Settings(BaseSettings):
     # Persisted surface-BM25 encoder state (vocab/IDF), shared by ingestion and query retrieval.
     bm25_state_path: Path = Path("bm25_state.json")
 
+    # Root-expansion sparse field (off by default; low-weight extra arm).
+    root_expansion_enabled: bool = False
+    root_expansion_weight: float = Field(default=0.25, ge=0)
+    root_dictionary_path: Path = Path("_meta/root_dictionary.jsonl")
+    root_expansion_state_path: Path = Path("root_expansion_state.json")
+
     # Chunking starting values (tuned in M6; see review_general_module_chunking_embeddings_brief.md)
     chunk_min_tokens: int = Field(default=128, gt=0)
     chunk_max_tokens: int = Field(default=768, gt=0)
     chunk_split_target_tokens: int = Field(default=448, gt=0)
     chunk_overlap_tokens: int = Field(default=64, ge=0)
+
+    @property
+    def resolved_root_dictionary_path(self) -> Path:
+        if self.root_dictionary_path.is_absolute():
+            return self.root_dictionary_path
+        return self.corpus_root / self.root_dictionary_path
 
     @property
     def postgres_dsn(self) -> str:

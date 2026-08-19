@@ -12,10 +12,10 @@ from shamela_rag.generation.service import GeneralQAService
 from shamela_rag.retrieval.dense import DenseRetriever
 from shamela_rag.retrieval.expand import ContextExpander
 from shamela_rag.retrieval.rerank import CrossEncoderReranker, Reranker
-from shamela_rag.retrieval.service import RetrievalService
+from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
 from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import QueryLanguage, Translator
-from shamela_rag.vectorstore.qdrant_store import QdrantStore
+from shamela_rag.vectorstore.qdrant_store import ROOT_VECTOR_NAME, QdrantStore
 
 
 class _PassthroughTranslator(Translator):
@@ -66,6 +66,15 @@ def build_general_qa_service(
         dense_dim=resolved_embedder.dims,
     )
     session_factory = get_sessionmaker()
+    root_retriever = None
+    if settings.root_expansion_enabled:
+        from shamela_rag.factory import _load_root_expansion
+
+        loaded_root = _load_root_expansion(settings)
+        root_retriever = SparseRetriever(
+            encoder=loaded_root, store=store, vector_name=ROOT_VECTOR_NAME
+        )
+
     retrieval = RetrievalService(
         translator=resolved_translator,
         dense_retriever=DenseRetriever(embedder=resolved_embedder, store=store),
@@ -73,6 +82,8 @@ def build_general_qa_service(
         reranker=resolved_reranker,
         expander=ContextExpander(session_factory),
         session_factory=session_factory,
+        config=RetrievalConfig(use_root_expansion=root_retriever is not None),
+        root_retriever=root_retriever,
     )
     return GeneralQAService(
         retrieval_service=retrieval,
