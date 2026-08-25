@@ -32,6 +32,10 @@ DEFAULT_TASK_DESCRIPTION = (
     "Given a web search query, retrieve relevant passages that answer the query"
 )
 
+DEFAULT_GGUF_N_CTX = 512
+# Rough char budget so GGUF embed stays within ``n_ctx`` (Arabic heuristic ~3 chars/token).
+DEFAULT_GGUF_MAX_CHARS = DEFAULT_GGUF_N_CTX * 3
+
 QuantizationMode = Literal["int8", "int4", "gguf"]
 SUPPORTED_QUANTIZATIONS: frozenset[str] = frozenset({"int8", "int4", "gguf"})
 
@@ -101,7 +105,12 @@ def _load_sentence_transformer(
     return SentenceTransformer(model_id, **kwargs)
 
 
-def _load_gguf_embedder(gguf_path: Path, *, n_ctx: int = 8192) -> Any:
+def _load_gguf_embedder(
+    gguf_path: Path,
+    *,
+    n_ctx: int = DEFAULT_GGUF_N_CTX,
+    n_threads: int | None = None,
+) -> Any:
     try:
         from llama_cpp import Llama  # type: ignore[import-not-found]
     except ImportError as exc:
@@ -110,11 +119,18 @@ def _load_gguf_embedder(gguf_path: Path, *, n_ctx: int = 8192) -> Any:
         ) from exc
     if not gguf_path.is_file():
         raise FileNotFoundError(f"GGUF file not found: {gguf_path}")
+    if n_ctx <= 0:
+        raise ValueError(f"n_ctx must be positive, got {n_ctx}")
     # Qwen3-Embedding GGUF docs require last-token pooling for correct vectors.
+    import os
+
+    threads = n_threads if n_threads is not None else max(1, (os.cpu_count() or 4) - 1)
     kwargs: dict[str, Any] = {
         "model_path": str(gguf_path),
         "embedding": True,
         "n_ctx": n_ctx,
+        "n_threads": threads,
+        "n_batch": min(512, n_ctx),
         "verbose": False,
     }
     try:
@@ -131,7 +147,11 @@ def _load_gguf_embedder(gguf_path: Path, *, n_ctx: int = 8192) -> Any:
         return Llama(**kwargs)
     except TypeError:
         kwargs.pop("pooling_type", None)
-        return Llama(**kwargs)
+        try:
+            return Llama(**kwargs)
+        except TypeError:
+            kwargs.pop("n_batch", None)
+            return Llama(**kwargs)
 
 
 def download_qwen_gguf(
@@ -181,6 +201,8 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
         dims: int | None = None,
         quantization: QuantizationMode | None = None,
         gguf_path: Path | str | None = None,
+        gguf_n_ctx: int = DEFAULT_GGUF_N_CTX,
+        gguf_max_chars: int | None = None,
     ) -> None:
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
@@ -195,16 +217,21 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
             raise ValueError("quantization='gguf' requires gguf_path")
         if quantization != "gguf" and gguf_path is not None:
             raise ValueError("gguf_path is only valid with quantization='gguf'")
+        if gguf_n_ctx <= 0:
+            raise ValueError(f"gguf_n_ctx must be positive, got {gguf_n_ctx}")
 
         self._quantization = quantization
         self._batch_size = batch_size
         self._task_description = task_description
         self._gguf: Any | None = None
         self._model: Any | None = None
+        self._gguf_max_chars = (
+            gguf_max_chars if gguf_max_chars is not None else max(256, gguf_n_ctx * 3)
+        )
 
         if quantization == "gguf":
             path = Path(gguf_path) if not isinstance(gguf_path, Path) else gguf_path
-            self._gguf = _load_gguf_embedder(path)
+            self._gguf = _load_gguf_embedder(path, n_ctx=gguf_n_ctx)
             self._tokenizer_counter: TokenCounter = _HeuristicCharCounter()
             self._dims = int(dims) if dims is not None else DEFAULT_EMBEDDING_DIMS
             return
@@ -286,7 +313,9 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
 
     def _embed_gguf(self, text: str) -> list[float]:
         assert self._gguf is not None
-        result = self._gguf.create_embedding(text)
+        # Truncate long chunks so llama.cpp does not pay for an 8k context on every call.
+        clipped = text if len(text) <= self._gguf_max_chars else text[: self._gguf_max_chars]
+        result = self._gguf.create_embedding(clipped)
         data = result["data"] if isinstance(result, dict) else result.data
         row = data[0]["embedding"] if isinstance(data[0], dict) else data[0].embedding
         vector = [float(x) for x in row]

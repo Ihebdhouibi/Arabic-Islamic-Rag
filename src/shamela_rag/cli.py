@@ -226,6 +226,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=100,
         help="Dense candidate limit for retrieval arm (default: 100).",
     )
+    quant.add_argument(
+        "--gguf-n-ctx",
+        type=int,
+        default=512,
+        help="GGUF context length / truncate budget (default: 512; lower = faster CPU embeds).",
+    )
     return parser
 
 
@@ -439,6 +445,7 @@ def run_compare_qwen_quant(args: argparse.Namespace) -> int:
             gguf_path=gguf_path,
             gguf_baseline_path=gguf_baseline,
             device=args.device,
+            gguf_n_ctx=args.gguf_n_ctx,
         )
     except ValueError as exc:
         logger.error("%s", exc)

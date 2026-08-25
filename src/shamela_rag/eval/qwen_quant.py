@@ -50,6 +50,7 @@ class QuantVariantSpec:
     quantization: QuantizationMode | None = None
     gguf_path: Path | None = None
     device: str | None = None
+    gguf_n_ctx: int = 512
 
 
 @dataclass
@@ -143,8 +144,9 @@ def default_variant_specs(
     gguf_path: Path | None = None,
     gguf_baseline_path: Path | None = None,
     device: str | None = None,
+    gguf_n_ctx: int = 512,
 ) -> list[QuantVariantSpec]:
-    
+    """fp16 baseline (optional), then int8/int4, optional GGUF arms."""
     specs: list[QuantVariantSpec] = []
     if include_fp16:
         specs.append(QuantVariantSpec(name="fp16-baseline", quantization=None, device=device))
@@ -159,6 +161,7 @@ def default_variant_specs(
                 quantization="gguf",
                 gguf_path=gguf_baseline_path,
                 device=device,
+                gguf_n_ctx=gguf_n_ctx,
             )
         )
     if gguf_path is not None:
@@ -168,6 +171,7 @@ def default_variant_specs(
                 quantization="gguf",
                 gguf_path=gguf_path,
                 device=device,
+                gguf_n_ctx=gguf_n_ctx,
             )
         )
     if not specs:
@@ -181,6 +185,7 @@ def _build_provider(spec: QuantVariantSpec) -> Qwen3EmbeddingProvider:
         quantization=spec.quantization,
         gguf_path=spec.gguf_path,
         batch_size=8 if spec.quantization else 32,
+        gguf_n_ctx=spec.gguf_n_ctx,
     )
 
 
@@ -218,9 +223,16 @@ def measure_variant(
     log(f"{spec.name} loaded in {load_s:.1f}s (dims={provider.dims})")
     try:
         t1 = time.perf_counter()
-        vectors = provider.embed_documents(list(texts))
+        texts_list = list(texts)
+        vectors: list[list[float]] = []
+        total = len(texts_list)
+        report_every = max(1, total // 10) if total >= 10 else 1
+        for index, text in enumerate(texts_list, start=1):
+            vectors.append(provider.embed_documents([text])[0])
+            if index == total or index % report_every == 0:
+                log(f"{spec.name} embedded {index}/{total} texts")
         elapsed_ms = (time.perf_counter() - t1) * 1000.0
-        mean_ms = elapsed_ms / max(1, len(texts))
+        mean_ms = elapsed_ms / max(1, len(texts_list))
         cosine = _mean_cosine(baseline_vectors, vectors) if baseline_vectors is not None else None
         metrics = QuantVariantMetrics(
             name=spec.name,
@@ -230,7 +242,7 @@ def measure_variant(
             peak_vram_mb=_vram_mb(),
             mean_embed_ms=mean_ms,
             mean_cosine_vs_baseline=cosine,
-            embed_count=len(texts),
+            embed_count=len(texts_list),
         )
         return metrics, vectors
     finally:
