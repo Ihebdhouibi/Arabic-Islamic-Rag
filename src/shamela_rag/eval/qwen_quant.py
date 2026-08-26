@@ -1,8 +1,4 @@
-"""Qwen3 quantization footprint + quality comparison (issue #135).
-
-Measures load time / RSS / VRAM / latency and mean cosine vs baseline; optional dense
-retrieval on shared chunks + golden set (Recall@k, MRR, nDCG).
-"""
+"""Qwen3 quantization footprint + quality comparison (issue #135)."""
 
 from __future__ import annotations
 

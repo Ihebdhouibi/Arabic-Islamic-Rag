@@ -1,9 +1,8 @@
 """Qwen3-Embedding-8B backend for ``EmbeddingProvider``.
 
-Uses sentence-transformers. Queries get Qwen's ``Instruct: …\\nQuery:…`` template;
-documents are embedded unchanged. Optional ``[qwen]`` / ``[qwen-quant]`` / ``[llm]``
-extras install heavy deps. ``quantization``: None (default), ``int8``/``int4``
-(bitsandbytes), or ``gguf`` (llama.cpp).
+Queries use Qwen's ``Instruct: …\\nQuery:…`` template; documents are unchanged.
+Optional ``[qwen]`` / ``[qwen-quant]`` / ``[llm]`` extras. ``quantization``:
+None, ``int8``/``int4`` (bitsandbytes), or ``gguf`` (llama.cpp).
 """
 
 from __future__ import annotations
@@ -26,7 +25,6 @@ DEFAULT_TASK_DESCRIPTION = (
 )
 
 DEFAULT_GGUF_N_CTX = 512
-DEFAULT_GGUF_MAX_CHARS = DEFAULT_GGUF_N_CTX * 3
 
 QuantizationMode = Literal["int8", "int4", "gguf"]
 SUPPORTED_QUANTIZATIONS: frozenset[str] = frozenset({"int8", "int4", "gguf"})
@@ -83,7 +81,6 @@ def _load_sentence_transformer(
         kwargs["truncate_dim"] = truncate_dim
 
     if quantization in ("int8", "int4"):
-        # bitsandbytes needs device_map; do not also pass kwargs["device"].
         kwargs["model_kwargs"] = {
             "quantization_config": _bitsandbytes_config(quantization),
             "device_map": "auto",
@@ -105,16 +102,17 @@ def _load_gguf_embedder(
     import importlib
     import os
 
+    if not gguf_path.is_file():
+        raise FileNotFoundError(f"GGUF file not found: {gguf_path}")
+    if n_ctx <= 0:
+        raise ValueError(f"n_ctx must be positive, got {n_ctx}")
+
     try:
         llama_cpp = importlib.import_module("llama_cpp")
     except ImportError as exc:
         raise ImportError(
             'Qwen GGUF embedding needs llama-cpp-python: pip install -e ".[llm]"'
         ) from exc
-    if not gguf_path.is_file():
-        raise FileNotFoundError(f"GGUF file not found: {gguf_path}")
-    if n_ctx <= 0:
-        raise ValueError(f"n_ctx must be positive, got {n_ctx}")
 
     threads = n_threads if n_threads is not None else max(1, (os.cpu_count() or 4) - 1)
     kwargs: dict[str, Any] = {
@@ -144,7 +142,6 @@ def download_qwen_gguf(
     filename: str = QWEN3_EMBEDDING_GGUF_Q4_K_M,
     local_dir: Path | str | None = None,
 ) -> Path:
-    """Download an official Qwen3-Embedding GGUF into ``HF_HOME`` / ``local_dir``."""
     import importlib
 
     try:
@@ -228,7 +225,6 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
             quantization=quantization,
         )
         if quantization in ("int8", "int4"):
-            # encode() may call Module.to(); that breaks device_map / bitsandbytes models.
             self._model.to = lambda *args, **kwargs: self._model
         self._tokenizer_counter = _HFTokenizerCounter(self._model.tokenizer)
         reported = self._model.get_sentence_embedding_dimension()

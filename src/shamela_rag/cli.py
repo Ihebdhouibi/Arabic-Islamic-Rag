@@ -389,7 +389,6 @@ def run_validate_structure(args: argparse.Namespace) -> int:
 
 
 def run_compare_qwen_quant(args: argparse.Namespace) -> int:
-    """Measure Qwen3 quantization tradeoffs (issue #135)."""
     import os
 
     from shamela_rag.embeddings.qwen import download_qwen_gguf
