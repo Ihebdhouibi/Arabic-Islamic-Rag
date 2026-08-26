@@ -1,16 +1,9 @@
 """Qwen3-Embedding-8B backend for ``EmbeddingProvider``.
 
-Uses sentence-transformers. Query text is formatted with Qwen's official
-``Instruct: …\\nQuery:…`` template (documents are embedded unchanged). Optional
-``[qwen]`` extra installs the heavy deps; integration tests skip when weights
-are absent.
-
-Quantization (issue #135 / M3 quantization):
-- ``quantization=None`` — default SentenceTransformer load (fp16/bf16 on GPU).
-- ``quantization="int8"`` / ``"int4"`` — bitsandbytes weight load (~2x / ~4x VRAM cut).
-- ``quantization="gguf"`` — llama.cpp embedding mode from a local GGUF file (CPU fallback).
-
-Install ``pip install -e ".[qwen,qwen-quant]"`` for int8/int4; GGUF needs the ``[llm]`` extra.
+Uses sentence-transformers. Queries get Qwen's ``Instruct: …\\nQuery:…`` template;
+documents are embedded unchanged. Optional ``[qwen]`` / ``[qwen-quant]`` / ``[llm]``
+extras install heavy deps. ``quantization``: None (default), ``int8``/``int4``
+(bitsandbytes), or ``gguf`` (llama.cpp).
 """
 
 from __future__ import annotations
@@ -33,7 +26,6 @@ DEFAULT_TASK_DESCRIPTION = (
 )
 
 DEFAULT_GGUF_N_CTX = 512
-# Rough char budget so GGUF embed stays within ``n_ctx`` (Arabic heuristic ~3 chars/token).
 DEFAULT_GGUF_MAX_CHARS = DEFAULT_GGUF_N_CTX * 3
 
 QuantizationMode = Literal["int8", "int4", "gguf"]
@@ -41,29 +33,26 @@ SUPPORTED_QUANTIZATIONS: frozenset[str] = frozenset({"int8", "int4", "gguf"})
 
 
 def format_qwen_query(task_description: str, query: str) -> str:
-    """Official Qwen3 embedding query formatting (instruction on queries only)."""
     return f"Instruct: {task_description}\nQuery:{query}"
 
 
 def _bitsandbytes_config(mode: Literal["int8", "int4"]) -> Any:
+    import importlib
+
     try:
-        import torch
-        from transformers import BitsAndBytesConfig
+        torch = importlib.import_module("torch")
+        transformers = importlib.import_module("transformers")
+        importlib.import_module("bitsandbytes")
     except ImportError as exc:
         raise ImportError(
             "Qwen int8/int4 load needs bitsandbytes + transformers: "
             'pip install -e ".[qwen,qwen-quant]"'
         ) from exc
-    try:
-        import bitsandbytes  # type: ignore[import-untyped]  # noqa: F401
-    except ImportError as exc:
-        raise ImportError(
-            'Qwen int8/int4 load needs bitsandbytes: pip install -e ".[qwen,qwen-quant]"'
-        ) from exc
 
+    config_cls = transformers.BitsAndBytesConfig
     if mode == "int8":
-        return BitsAndBytesConfig(load_in_8bit=True)
-    return BitsAndBytesConfig(
+        return config_cls(load_in_8bit=True)
+    return config_cls(
         load_in_4bit=True,
         bnb_4bit_compute_dtype=torch.float16,
         bnb_4bit_quant_type="nf4",
@@ -80,8 +69,10 @@ def _load_sentence_transformer(
 ) -> Any:
     if quantization == "gguf":
         raise ValueError("gguf quantization uses _load_gguf_embedder, not SentenceTransformer")
+    import importlib
+
     try:
-        from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+        st = importlib.import_module("sentence_transformers")
     except ImportError as exc:
         raise ImportError(
             'Qwen3EmbeddingProvider requires optional deps: pip install "shamela-rag[qwen]"'
@@ -92,7 +83,7 @@ def _load_sentence_transformer(
         kwargs["truncate_dim"] = truncate_dim
 
     if quantization in ("int8", "int4"):
-        # device_map is required for bitsandbytes; do not also set kwargs["device"].
+        # bitsandbytes needs device_map; do not also pass kwargs["device"].
         kwargs["model_kwargs"] = {
             "quantization_config": _bitsandbytes_config(quantization),
             "device_map": "auto",
@@ -102,7 +93,7 @@ def _load_sentence_transformer(
     elif device is not None:
         kwargs["device"] = device
 
-    return SentenceTransformer(model_id, **kwargs)
+    return st.SentenceTransformer(model_id, **kwargs)
 
 
 def _load_gguf_embedder(
@@ -111,8 +102,11 @@ def _load_gguf_embedder(
     n_ctx: int = DEFAULT_GGUF_N_CTX,
     n_threads: int | None = None,
 ) -> Any:
+    import importlib
+    import os
+
     try:
-        from llama_cpp import Llama  # type: ignore[import-not-found]
+        llama_cpp = importlib.import_module("llama_cpp")
     except ImportError as exc:
         raise ImportError(
             'Qwen GGUF embedding needs llama-cpp-python: pip install -e ".[llm]"'
@@ -121,8 +115,6 @@ def _load_gguf_embedder(
         raise FileNotFoundError(f"GGUF file not found: {gguf_path}")
     if n_ctx <= 0:
         raise ValueError(f"n_ctx must be positive, got {n_ctx}")
-    # Qwen3-Embedding GGUF docs require last-token pooling for correct vectors.
-    import os
 
     threads = n_threads if n_threads is not None else max(1, (os.cpu_count() or 4) - 1)
     kwargs: dict[str, Any] = {
@@ -133,25 +125,18 @@ def _load_gguf_embedder(
         "n_batch": min(512, n_ctx),
         "verbose": False,
     }
+    pooling_last = getattr(llama_cpp, "LLAMA_POOLING_TYPE_LAST", None)
+    kwargs["pooling_type"] = 3 if pooling_last is None else pooling_last
+    llama_cls = llama_cpp.Llama
     try:
-        import llama_cpp
-
-        pooling_last = getattr(llama_cpp, "LLAMA_POOLING_TYPE_LAST", None)
-        if pooling_last is not None:
-            kwargs["pooling_type"] = pooling_last
-        else:
-            kwargs["pooling_type"] = 3  # llama.h: LLAMA_POOLING_TYPE_LAST
-    except Exception:  # noqa: BLE001 - older wheels may lack the constant
-        kwargs["pooling_type"] = 3
-    try:
-        return Llama(**kwargs)
+        return llama_cls(**kwargs)
     except TypeError:
         kwargs.pop("pooling_type", None)
         try:
-            return Llama(**kwargs)
+            return llama_cls(**kwargs)
         except TypeError:
             kwargs.pop("n_batch", None)
-            return Llama(**kwargs)
+            return llama_cls(**kwargs)
 
 
 def download_qwen_gguf(
@@ -160,13 +145,15 @@ def download_qwen_gguf(
     local_dir: Path | str | None = None,
 ) -> Path:
     """Download an official Qwen3-Embedding GGUF into ``HF_HOME`` / ``local_dir``."""
+    import importlib
+
     try:
-        from huggingface_hub import hf_hub_download
+        hub = importlib.import_module("huggingface_hub")
     except ImportError as exc:
         raise ImportError(
             "GGUF download needs huggingface_hub (installed with the [qwen] extra)"
         ) from exc
-    path = hf_hub_download(
+    path = hub.hf_hub_download(
         repo_id=QWEN3_EMBEDDING_GGUF_REPO_ID,
         filename=filename,
         local_dir=str(local_dir) if local_dir is not None else None,
@@ -183,10 +170,7 @@ class _HFTokenizerCounter:
 
 
 class _HeuristicCharCounter:
-    """Fallback when GGUF has no HF tokenizer exposed."""
-
     def count(self, text: str) -> int:
-        # Rough Arabic-aware heuristic used elsewhere in the project.
         return max(1, (len(text) + 2) // 3)
 
 
@@ -230,7 +214,8 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
         )
 
         if quantization == "gguf":
-            path = Path(gguf_path) if not isinstance(gguf_path, Path) else gguf_path
+            assert gguf_path is not None
+            path = gguf_path if isinstance(gguf_path, Path) else Path(gguf_path)
             self._gguf = _load_gguf_embedder(path, n_ctx=gguf_n_ctx)
             self._tokenizer_counter: TokenCounter = _HeuristicCharCounter()
             self._dims = int(dims) if dims is not None else DEFAULT_EMBEDDING_DIMS
@@ -243,7 +228,7 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
             quantization=quantization,
         )
         if quantization in ("int8", "int4"):
-            # encode() calls Module.to(device), which breaks device_map / bnb models.
+            # encode() may call Module.to(); that breaks device_map / bitsandbytes models.
             self._model.to = lambda *args, **kwargs: self._model
         self._tokenizer_counter = _HFTokenizerCounter(self._model.tokenizer)
         reported = self._model.get_sentence_embedding_dimension()
@@ -295,7 +280,6 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
         return self._as_list_vectors(vectors)[0]
 
     def close(self) -> None:
-        """Release weights so another variant can load on the same host."""
         if self._model is not None:
             del self._model
             self._model = None
@@ -304,8 +288,9 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
             self._gguf = None
         gc.collect()
         try:
-            import torch
+            import importlib
 
+            torch = importlib.import_module("torch")
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
         except ImportError:
@@ -313,7 +298,6 @@ class Qwen3EmbeddingProvider(EmbeddingProvider):
 
     def _embed_gguf(self, text: str) -> list[float]:
         assert self._gguf is not None
-        # Truncate long chunks so llama.cpp does not pay for an 8k context on every call.
         clipped = text if len(text) <= self._gguf_max_chars else text[: self._gguf_max_chars]
         result = self._gguf.create_embedding(clipped)
         data = result["data"] if isinstance(result, dict) else result.data

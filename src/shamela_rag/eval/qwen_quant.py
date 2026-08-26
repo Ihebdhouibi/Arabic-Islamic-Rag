@@ -1,9 +1,7 @@
 """Qwen3 quantization footprint + quality comparison (issue #135).
 
-Loads each variant through ``Qwen3EmbeddingProvider``, records load time / RSS / VRAM /
-per-text latency, and measures mean cosine agreement vs an fp16 (default) baseline on the
-same texts. Optional dense retrieval over a shared chunk JSONL + golden set reuses M6-02
-metrics (Recall@k, MRR, nDCG) so quality is measured, not assumed (ADR-002).
+Measures load time / RSS / VRAM / latency and mean cosine vs baseline; optional dense
+retrieval on shared chunks + golden set (Recall@k, MRR, nDCG).
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 from shamela_rag.embeddings.qwen import (
     QWEN3_EMBEDDING_MODEL_ID,
@@ -30,9 +28,13 @@ from shamela_rag.eval.dataset import GoldenExample, load_golden_dataset
 
 ProgressFn = Callable[[str], None]
 
-EvalChunkRow = dict[str, object]
 
-# Small Arabic/English probe set used when no chunk file is supplied (cosine-only).
+class EvalChunkRow(TypedDict):
+    chunk_id: str
+    book_id: int
+    text: str
+
+
 DEFAULT_PROBE_TEXTS: tuple[str, ...] = (
     "باب الهمزة",
     "ما هي الصلاة",
@@ -44,8 +46,6 @@ DEFAULT_PROBE_TEXTS: tuple[str, ...] = (
 
 @dataclass(frozen=True)
 class QuantVariantSpec:
-    """One arm of the quantization comparison."""
-
     name: str
     quantization: QuantizationMode | None = None
     gguf_path: Path | None = None
@@ -76,40 +76,45 @@ class QuantComparisonReport:
 
 
 def _rss_mb() -> float | None:
-    """Best-effort process RSS in MiB (Unix ``resource``; Windows ``psutil`` if installed)."""
     try:
         import resource
 
-        usage = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
-        # Linux: KB; macOS: bytes.
+        getrusage = getattr(resource, "getrusage", None)
+        rusage_self = getattr(resource, "RUSAGE_SELF", None)
+        if getrusage is None or rusage_self is None:
+            raise AttributeError("resource.getrusage unavailable")
+        usage = getrusage(rusage_self).ru_maxrss
         if usage > 10_000_000:
-            return usage / (1024 * 1024)
-        return usage / 1024
+            return float(usage / (1024 * 1024))
+        return float(usage / 1024)
     except (ImportError, AttributeError, ValueError):
         pass
     try:
-        import psutil  # type: ignore[import-untyped]
+        import importlib
 
-        return psutil.Process().memory_info().rss / (1024 * 1024)
+        psutil = importlib.import_module("psutil")
+        return float(psutil.Process().memory_info().rss / (1024 * 1024))
     except Exception:  # noqa: BLE001 - optional probe
         return None
 
 
 def _vram_mb() -> float | None:
     try:
-        import torch
+        import importlib
 
+        torch = importlib.import_module("torch")
         if not torch.cuda.is_available():
             return None
-        return torch.cuda.max_memory_allocated() / (1024 * 1024)
+        return float(torch.cuda.max_memory_allocated() / (1024 * 1024))
     except Exception:  # noqa: BLE001 - optional probe
         return None
 
 
 def _reset_cuda_peak() -> None:
     try:
-        import torch
+        import importlib
 
+        torch = importlib.import_module("torch")
         if torch.cuda.is_available():
             torch.cuda.reset_peak_memory_stats()
             torch.cuda.empty_cache()
@@ -125,7 +130,7 @@ def _cosine(a: Sequence[float], b: Sequence[float]) -> float:
     nb = sum(y * y for y in b) ** 0.5
     if na == 0.0 or nb == 0.0:
         return 0.0
-    return dot / (na * nb)
+    return float(dot / (na * nb))
 
 
 def _mean_cosine(baseline: Sequence[Sequence[float]], other: Sequence[Sequence[float]]) -> float:
@@ -133,7 +138,7 @@ def _mean_cosine(baseline: Sequence[Sequence[float]], other: Sequence[Sequence[f
         raise ValueError("vector lists must have equal length")
     if not baseline:
         return 0.0
-    return sum(_cosine(a, b) for a, b in zip(baseline, other, strict=True)) / len(baseline)
+    return float(sum(_cosine(a, b) for a, b in zip(baseline, other, strict=True)) / len(baseline))
 
 
 def default_variant_specs(
@@ -146,7 +151,6 @@ def default_variant_specs(
     device: str | None = None,
     gguf_n_ctx: int = 512,
 ) -> list[QuantVariantSpec]:
-    """fp16 baseline (optional), then int8/int4, optional GGUF arms."""
     specs: list[QuantVariantSpec] = []
     if include_fp16:
         specs.append(QuantVariantSpec(name="fp16-baseline", quantization=None, device=device))
@@ -196,7 +200,6 @@ def measure_variant(
     baseline_vectors: Sequence[Sequence[float]] | None = None,
     progress: ProgressFn | None = None,
 ) -> tuple[QuantVariantMetrics, list[list[float]] | None]:
-    """Load one variant, embed ``texts``, optionally score cosine vs baseline vectors."""
     log = progress or (lambda _m: None)
     log(f"loading {spec.name} (quantization={spec.quantization!r})")
     _reset_cuda_peak()
@@ -276,7 +279,7 @@ def _rank_books_by_dense(
 
 def run_quant_retrieval(
     dataset: Sequence[GoldenExample],
-    chunk_texts: Sequence[str],
+    _chunk_texts: Sequence[str],
     chunk_book_ids: Sequence[int],
     dense_by_variant: Mapping[str, Sequence[Sequence[float]]],
     query_vectors_by_variant: Mapping[str, Mapping[str, Sequence[float]]],
@@ -284,8 +287,6 @@ def run_quant_retrieval(
     candidate_limit: int = 100,
     ks: Sequence[int] = (10, 100),
 ) -> ComparisonReport:
-    """Dense-only retrieval comparison across precomputed variant embeddings."""
-    del chunk_texts  # embeddings already computed; signature keeps call sites clear
     configs: list[RunConfig] = []
     for name, doc_vectors in dense_by_variant.items():
         qmap = query_vectors_by_variant[name]
@@ -304,7 +305,6 @@ def run_quant_retrieval(
 
 
 def build_recommendation(variants: Sequence[QuantVariantMetrics]) -> str:
-    """Heuristic written recommendation from measured rows (quality + footprint)."""
     ok = [v for v in variants if v.error is None]
     if not ok:
         return (
@@ -354,7 +354,6 @@ def build_recommendation(variants: Sequence[QuantVariantMetrics]) -> str:
             "Do not use quantized Qwen for M6-03 until quality recovers or GGUF is validated."
         )
 
-    # Prefer lower VRAM, then lower RSS, then faster load.
     winner = min(
         good,
         key=lambda v: (
@@ -392,7 +391,6 @@ def run_qwen_quant_comparison(
     max_chunks: int | None = 256,
     progress: ProgressFn | None = None,
 ) -> QuantComparisonReport:
-    """Run footprint + cosine (+ optional dense retrieval) across quantization variants."""
     log = progress or (lambda _m: None)
     texts: list[str]
     book_ids: list[int] | None = None
@@ -489,7 +487,6 @@ def save_eval_chunks_jsonl(path: Path, rows: Sequence[EvalChunkRow]) -> None:
 
 
 def subsample_eval_chunks(rows: Sequence[EvalChunkRow], *, max_chunks: int) -> list[EvalChunkRow]:
-    """Round-robin subsample so every golden book keeps some representation."""
     if max_chunks <= 0:
         raise ValueError(f"max_chunks must be positive, got {max_chunks}")
     ordered = list(rows)
@@ -521,7 +518,6 @@ def build_golden_eval_chunks(
     *,
     progress: ProgressFn | None = None,
 ) -> list[EvalChunkRow]:
-    """Chunk every book referenced in the golden set (production chunker)."""
     from shamela_rag.chunking.orchestrator import chunk_book
     from shamela_rag.data.discovery import iter_valid_books
     from shamela_rag.ingestion.pipeline import dense_input
@@ -561,10 +557,19 @@ def _load_eval_chunk_rows(path: Path) -> list[EvalChunkRow]:
             line = line.strip()
             if not line:
                 continue
-            row = json.loads(line)
-            if row.get("book_id") is None or row.get("text") is None:
+            raw = json.loads(line)
+            book_id = raw.get("book_id")
+            text = raw.get("text")
+            chunk_id = raw.get("chunk_id", "")
+            if book_id is None or text is None:
                 raise ValueError(f"chunk row missing book_id/text in {path}")
-            rows.append(row)
+            rows.append(
+                {
+                    "chunk_id": str(chunk_id),
+                    "book_id": int(book_id),
+                    "text": str(text),
+                }
+            )
     if not rows:
         raise ValueError(f"no chunks found in {path}")
     return rows
