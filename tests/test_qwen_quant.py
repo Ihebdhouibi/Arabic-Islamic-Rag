@@ -341,6 +341,36 @@ def test_build_recommendation_rejects_low_cosine() -> None:
     assert "int8" in text
 
 
+def test_build_recommendation_rejects_missing_cosine() -> None:
+    text = build_recommendation(
+        [
+            QuantVariantMetrics(
+                name="gguf-q8-baseline",
+                quantization="gguf",
+                load_seconds=1.0,
+                peak_rss_mb=100.0,
+                peak_vram_mb=None,
+                mean_embed_ms=1.0,
+                mean_cosine_vs_baseline=None,
+                embed_count=1,
+            ),
+            QuantVariantMetrics(
+                name="int8",
+                quantization="int8",
+                load_seconds=0.5,
+                peak_rss_mb=50.0,
+                peak_vram_mb=10.0,
+                mean_embed_ms=1.0,
+                mean_cosine_vs_baseline=None,
+                embed_count=1,
+            ),
+        ]
+    )
+    assert "not auto-recommendable" in text
+    assert "int8" in text
+    assert not text.startswith("Recommend int8")
+
+
 def test_build_recommendation_all_errors() -> None:
     text = build_recommendation(
         [
@@ -812,6 +842,63 @@ def test_run_qwen_quant_comparison_probe_path(monkeypatch: pytest.MonkeyPatch) -
     assert "Recommend" in report.recommendation or "int8" in report.recommendation
 
 
+def test_run_qwen_quant_comparison_baseline_before_candidates(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Candidates listed before the baseline still get cosine vs baseline."""
+    from shamela_rag.eval import qwen_quant as qq
+
+    seen: list[str] = []
+
+    def _measure(
+        spec: QuantVariantSpec,
+        texts: object,
+        *,
+        baseline_vectors: object = None,
+        progress: object = None,
+    ) -> tuple[QuantVariantMetrics, list[list[float]] | None]:
+        seen.append(spec.name)
+        vecs = [[1.0, 0.0] for _ in range(2)]
+        cosine = 0.99 if baseline_vectors is not None else None
+        return (
+            QuantVariantMetrics(
+                name=spec.name,
+                quantization=str(spec.quantization or "none"),
+                load_seconds=0.1,
+                peak_rss_mb=50.0 if spec.name == "int8" else 100.0,
+                peak_vram_mb=10.0 if spec.name == "int8" else None,
+                mean_embed_ms=1.0,
+                mean_cosine_vs_baseline=cosine,
+                embed_count=2,
+            ),
+            vecs,
+        )
+
+    monkeypatch.setattr(qq, "measure_variant", _measure)
+    report = qq.run_qwen_quant_comparison(
+        [
+            QuantVariantSpec(name="int8", quantization="int8"),
+            QuantVariantSpec(name="int4", quantization="int4"),
+            QuantVariantSpec(
+                name="gguf-q8-baseline",
+                quantization="gguf",
+                gguf_path=tmp_path / "q8.gguf",
+            ),
+            QuantVariantSpec(
+                name="gguf",
+                quantization="gguf",
+                gguf_path=tmp_path / "q4.gguf",
+            ),
+        ],
+        probe_texts=["a", "b"],
+    )
+    assert seen[0] == "gguf-q8-baseline"
+    by_name = {row.name: row for row in report.variants}
+    assert by_name["int8"].mean_cosine_vs_baseline == pytest.approx(0.99)
+    assert by_name["int4"].mean_cosine_vs_baseline == pytest.approx(0.99)
+    assert report.recommendation.startswith("Recommend")
+
+
 def test_run_qwen_quant_comparison_chunks_and_retrieval(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -1114,6 +1201,30 @@ def test_run_compare_qwen_quant_cli(monkeypatch: pytest.MonkeyPatch, tmp_path: P
     )
     assert cli.run_compare_qwen_quant(args) == 0
     assert (out / "metrics.json").is_file()
+
+
+def test_run_compare_qwen_quant_download_failure(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from shamela_rag import cli
+
+    args = cli.build_parser().parse_args(
+        [
+            "compare-qwen-quant",
+            "--skip-fp16",
+            "--no-int8",
+            "--no-int4",
+            "--download-gguf",
+            "--output-dir",
+            str(tmp_path / "out"),
+        ]
+    )
+
+    def _boom(**_kwargs: object) -> Path:
+        raise OSError("network down")
+
+    monkeypatch.setattr("shamela_rag.embeddings.qwen.download_qwen_gguf", _boom)
+    assert cli.run_compare_qwen_quant(args) == 1
 
 
 def test_run_compare_qwen_quant_requires_golden_with_chunks(

@@ -189,7 +189,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--gguf-dir",
         type=Path,
         default=None,
-        help="Directory for GGUF downloads (default: HF_HOME or D:\\hf-cache).",
+        help="Directory for GGUF downloads (default: HF_HOME, else Hugging Face cache).",
     )
     quant.add_argument(
         "--corpus-root",
@@ -415,20 +415,29 @@ def run_compare_qwen_quant(args: argparse.Namespace) -> int:
 
     gguf_path = args.gguf
     gguf_baseline = args.gguf_baseline
-    gguf_dir = args.gguf_dir
-    if gguf_dir is None:
-        gguf_dir = Path(os.environ.get("HF_HOME") or r"D:\hf-cache")
+    hf_home = os.environ.get("HF_HOME")
+    gguf_dir: Path | None = args.gguf_dir or (Path(hf_home) if hf_home else None)
 
-    if args.download_gguf:
-        status(f"downloading official Q4_K_M GGUF into {gguf_dir}")
-        gguf_path = download_qwen_gguf(local_dir=gguf_dir)
-        status(f"GGUF ready at {gguf_path}")
-    if args.download_gguf_q8:
-        from shamela_rag.embeddings.qwen import QWEN3_EMBEDDING_GGUF_Q8_0
+    try:
+        if args.download_gguf:
+            status(
+                f"downloading official Q4_K_M GGUF into {gguf_dir or 'Hugging Face cache'}"
+            )
+            gguf_path = download_qwen_gguf(local_dir=gguf_dir)
+            status(f"GGUF ready at {gguf_path}")
+        if args.download_gguf_q8:
+            from shamela_rag.embeddings.qwen import QWEN3_EMBEDDING_GGUF_Q8_0
 
-        status(f"downloading official Q8_0 GGUF into {gguf_dir}")
-        gguf_baseline = download_qwen_gguf(filename=QWEN3_EMBEDDING_GGUF_Q8_0, local_dir=gguf_dir)
-        status(f"GGUF Q8 baseline ready at {gguf_baseline}")
+            status(
+                f"downloading official Q8_0 GGUF into {gguf_dir or 'Hugging Face cache'}"
+            )
+            gguf_baseline = download_qwen_gguf(
+                filename=QWEN3_EMBEDDING_GGUF_Q8_0, local_dir=gguf_dir
+            )
+            status(f"GGUF Q8 baseline ready at {gguf_baseline}")
+    except Exception as exc:  # noqa: BLE001 - surface download/auth failures cleanly
+        logger.error("GGUF download failed: %s", exc)
+        return 1
 
     if not args.skip_fp16 and not args.no_int8 and gguf_path is None:
         status(

@@ -24,6 +24,8 @@ from shamela_rag.eval.dataset import GoldenExample, load_golden_dataset
 
 ProgressFn = Callable[[str], None]
 
+_BASELINE_NAMES: frozenset[str] = frozenset({"fp16-baseline", "gguf-q8-baseline"})
+
 
 class EvalChunkRow(TypedDict):
     chunk_id: str
@@ -179,6 +181,13 @@ def default_variant_specs(
     return specs
 
 
+def _baseline_first(specs: Sequence[QuantVariantSpec]) -> list[QuantVariantSpec]:
+    """Run baseline-named specs before candidates so cosine vs baseline is always computed."""
+    baselines = [spec for spec in specs if spec.name in _BASELINE_NAMES]
+    candidates = [spec for spec in specs if spec.name not in _BASELINE_NAMES]
+    return baselines + candidates
+
+
 def _build_provider(spec: QuantVariantSpec) -> Qwen3EmbeddingProvider:
     return Qwen3EmbeddingProvider(
         device=None if spec.quantization in ("int8", "int4") else spec.device,
@@ -226,6 +235,7 @@ def measure_variant(
         vectors: list[list[float]] = []
         total = len(texts_list)
         report_every = max(1, total // 10) if total >= 10 else 1
+        # Per-text embeds (not batch_size) so GGUF/ST mean_embed_ms stay comparable.
         for index, text in enumerate(texts_list, start=1):
             vectors.append(provider.embed_documents([text])[0])
             if index == total or index % report_every == 0:
@@ -308,7 +318,7 @@ def build_recommendation(variants: Sequence[QuantVariantMetrics]) -> str:
             "until a working int8/GGUF path is verified on target hardware."
         )
     baseline = next(
-        (v for v in ok if v.name in ("fp16-baseline", "gguf-q8-baseline")),
+        (v for v in ok if v.name in _BASELINE_NAMES),
         None,
     )
     if baseline is None:
@@ -333,12 +343,19 @@ def build_recommendation(variants: Sequence[QuantVariantMetrics]) -> str:
         )
 
     def _acceptable(v: QuantVariantMetrics) -> bool:
-        if v.mean_cosine_vs_baseline is None:
-            return True
-        return v.mean_cosine_vs_baseline >= 0.95
+        return (
+            v.mean_cosine_vs_baseline is not None and v.mean_cosine_vs_baseline >= 0.95
+        )
 
     good = [v for v in candidates if _acceptable(v)]
     if not good:
+        unverified = [v for v in candidates if v.mean_cosine_vs_baseline is None]
+        if unverified and all(v.mean_cosine_vs_baseline is None for v in candidates):
+            names = ", ".join(v.name for v in unverified)
+            return (
+                f"Candidates ran without cosine vs {baseline.name} ({names}); "
+                "not auto-recommendable. Re-run so the baseline is measured first."
+            )
         best = max(
             candidates,
             key=lambda v: v.mean_cosine_vs_baseline or 0.0,
@@ -422,8 +439,9 @@ def run_qwen_quant_comparison(
     metrics_rows: list[QuantVariantMetrics] = []
     dense_by_variant: dict[str, list[list[float]]] = {}
     baseline_vectors: list[list[float]] | None = None
+    ordered_specs = _baseline_first(specs)
 
-    for spec in specs:
+    for spec in ordered_specs:
         row, vectors = measure_variant(
             spec,
             texts,
@@ -433,7 +451,7 @@ def run_qwen_quant_comparison(
         metrics_rows.append(row)
         if vectors is None:
             continue
-        if baseline_vectors is None and spec.name in ("fp16-baseline", "gguf-q8-baseline"):
+        if baseline_vectors is None and spec.name in _BASELINE_NAMES:
             baseline_vectors = vectors
         dense_by_variant[spec.name] = vectors
 
@@ -441,7 +459,7 @@ def run_qwen_quant_comparison(
     if dataset is not None and book_ids is not None and dense_by_variant:
         log("embedding golden queries per successful variant")
         query_maps: dict[str, dict[str, list[float]]] = {}
-        for spec in specs:
+        for spec in ordered_specs:
             if spec.name not in dense_by_variant:
                 continue
             provider = None
