@@ -27,3 +27,6 @@ dist/
 .coverage
 coverage.xml
 htmlcov/
+
+# Local eval / measurement outputs (comparison tables, chunk caches, metrics)
+artifacts/

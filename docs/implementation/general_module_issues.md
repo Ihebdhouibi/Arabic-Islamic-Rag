@@ -234,6 +234,14 @@ clear biographical entries, and a `شرح حديث عمار` style no-TOC book f
   batching; device config).
 - **Done when:** embeds a batch; dims asserted; integration test skippable if weights absent in CI.
 
+### M3-02b · Optimize Qwen3-Embedding-8B resource footprint (quantization)  · issue #135
+- **Labels:** infra · embeddings · **Size:** M · **Depends on:** M3-02, M6-01 ·
+  **Branch:** `feature/m3-qwen3-quantization`
+- Investigate int8 (bitsandbytes / ONNX), then GGUF/llama.cpp CPU fallback, stretch int4.
+  Measure retrieval quality + memory + latency vs fp16 baseline (ADR-002).
+- **Done when:** at least one quantized variant through `EmbeddingProvider`; comparison table +
+  written recommendation for M6-03 / production.
+
 ### M3-03 · BGE-M3 provider (dense + learned sparse)
 - **Labels:** embeddings · **Size:** M · **Depends on:** M3-01 · **Branch:** `feature/m3-bge-m3`
 - Implement dense output; **also expose BGE-M3 learned-sparse** output behind a flag for the M6

@@ -11,12 +11,15 @@ How to stand up the general question-answering module on a machine with enough d
 | Backend | Vector dim | Approx download | Runs comfortably on |
 |---------|-----------:|----------------:|---------------------|
 | BGE-M3 (`--model bge-m3`, default) | 1024 | ~2.3 GB | CPU (slow) or any GPU |
-| Qwen3-Embedding-8B (`--model qwen3`) | 4096 | ~16 GB | GPU with ~16 GB VRAM |
+| Qwen3-Embedding-8B (`--model qwen3`) | 4096 | ~16 GB | GPU with ~16 GB VRAM (fp16) |
+| Qwen3 int8 / int4 (bitsandbytes) | 4096 | same weights | GPU with ~8 GB / ~4–5 GB VRAM (measure first) |
 | bge-reranker-v2-m3 (cross-encoder) | — | ~2.3 GB | CPU (ok for ~100 candidates) or GPU |
 
 - **Full corpus** (8,589 books / 7.6 M pages) requires substantial disk for Postgres + Qdrant plus
   hours-to-days of embedding time. Start with a **subset** (a category or `--limit N`) to validate.
-- **Laptops** (little VRAM / disk): use `--model bge-m3` on a small subset; Qwen3-8B needs a GPU box.
+- **Laptops** (little VRAM / disk): use `--model bge-m3` on a small subset; full fp16 Qwen3-8B needs
+  a GPU box. For Qwen on smaller GPUs, run the quantization comparison below before committing to
+  a production dtype.
 
 ## 2. Install
 
@@ -24,6 +27,8 @@ How to stand up the general question-answering module on a machine with enough d
 pip install -e ".[dev,bge,rerank]"     # BGE-M3 + reranker
 # For Qwen3 instead of / in addition to BGE-M3:
 pip install -e ".[qwen]"
+# For Qwen3 int8/int4 weight quantization (CUDA + bitsandbytes):
+pip install -e ".[qwen,qwen-quant]"
 ```
 
 Point the Hugging Face cache at a drive with room for the weights:
@@ -141,3 +146,22 @@ print(format_comparison(report))
 ```
 
 Use this for the model comparison (Qwen3 vs BGE-M3) and the chunk-size sweep.
+
+### Qwen3 quantization comparison (issue #135)
+
+fp16 Qwen3-Embedding-8B is ~16 GB VRAM. Measure int8 (and optional int4 / GGUF) against that
+baseline before using a quantized path for M6-03 or production:
+
+```bash
+pip install -e ".[qwen,qwen-quant]"   # bitsandbytes needs a CUDA GPU on most platforms
+shamela-rag compare-qwen-quant --output-dir artifacts/qwen-quant --device cuda
+# optional dense retrieval on a shared chunk sample:
+#   --chunks path/to/chunks.jsonl --golden docs/technical_docs/general_qa_golden_staging.jsonl
+# CPU / 16GB RAM (skip fp16 OOM + CUDA int8; official Q4_K_M GGUF):
+#   pip install -e ".[qwen,llm]"
+#   shamela-rag compare-qwen-quant --output-dir artifacts/qwen-quant \
+#     --skip-fp16 --no-int8 --no-int4 --download-gguf
+```
+
+Writes `comparison_table.md` (load time, RSS/VRAM, ms/text, mean cosine vs fp16, recommendation)
+and `metrics.json`. Quality must clear the cosine / golden-set bar — do not assume int8 is free.

@@ -1,7 +1,8 @@
 """Command-line entry point for the shamela-rag package.
 
-Exposes ``ingest`` (M3-08) and ``validate-structure`` (M6-06). Heavy embedding backends are
-imported lazily so ``--help`` and argument parsing stay fast and offline.
+Exposes ``ingest`` (M3-08), ``validate-structure`` (M6-06), ``build-bm25``, ``ask``, and
+``compare-qwen-quant`` (issue #135). Heavy embedding backends are imported lazily so ``--help``
+and argument parsing stay fast and offline.
 """
 
 from __future__ import annotations
@@ -127,6 +128,110 @@ def build_parser() -> argparse.ArgumentParser:
         help="Skip the cross-encoder (offline lexical reranker).",
     )
     ask.add_argument("--json", action="store_true", help="Emit the answer as JSON.")
+
+    quant = subcommands.add_parser(
+        "compare-qwen-quant",
+        help="Compare Qwen3 fp16 vs int8/int4/GGUF footprint and embedding quality (#135).",
+    )
+    quant.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Directory for comparison_table.md and metrics.json.",
+    )
+    quant.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Optional torch device for the fp16 baseline (e.g. cuda, cpu).",
+    )
+    quant.add_argument(
+        "--skip-fp16",
+        action="store_true",
+        help="Skip fp16 baseline (required on ~16GB RAM / no-GPU hosts that OOM on load).",
+    )
+    quant.add_argument(
+        "--no-int8",
+        action="store_true",
+        help="Skip bitsandbytes int8 (CUDA-oriented; fails on CPU-only machines).",
+    )
+    quant.add_argument(
+        "--no-int4",
+        action="store_true",
+        help="Skip the int4 (stretch) arm.",
+    )
+    quant.add_argument(
+        "--gguf",
+        type=Path,
+        default=None,
+        help="Local Qwen3-Embedding GGUF path (llama.cpp embedding mode).",
+    )
+    quant.add_argument(
+        "--gguf-baseline",
+        type=Path,
+        default=None,
+        help="Higher-bit GGUF used as cosine baseline when fp16 is skipped (e.g. Q8_0).",
+    )
+    quant.add_argument(
+        "--download-gguf",
+        action="store_true",
+        help=(
+            "Download official Qwen3-Embedding-8B Q4_K_M.gguf into HF_HOME "
+            "(or --gguf-dir) then run that arm."
+        ),
+    )
+    quant.add_argument(
+        "--download-gguf-q8",
+        action="store_true",
+        help="Download official Q8_0.gguf as --gguf-baseline (CPU proxy when fp16 OOMs).",
+    )
+    quant.add_argument(
+        "--gguf-dir",
+        type=Path,
+        default=None,
+        help="Directory for GGUF downloads (default: HF_HOME, else Hugging Face cache).",
+    )
+    quant.add_argument(
+        "--corpus-root",
+        type=Path,
+        default=None,
+        help="Shamela corpus root; chunk golden-set books for retrieval (with --golden).",
+    )
+    quant.add_argument(
+        "--force-rechunk",
+        action="store_true",
+        help="Rebuild eval_chunks.jsonl even when a cache exists under --output-dir.",
+    )
+    quant.add_argument(
+        "--chunks",
+        type=Path,
+        default=None,
+        help="Optional chunk JSONL for dense retrieval metrics (text + book_id).",
+    )
+    quant.add_argument(
+        "--golden",
+        type=Path,
+        default=None,
+        help="Golden JSONL for retrieval metrics (required with --corpus-root or --chunks).",
+    )
+    quant.add_argument(
+        "--max-chunks",
+        type=int,
+        default=512,
+        help="Cap eval chunks after load/build (default: 512; round-robin per book).",
+    )
+    quant.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=100,
+        help="Dense candidate limit for retrieval arm (default: 100).",
+    )
+    quant.add_argument(
+        "--gguf-n-ctx",
+        type=int,
+        default=512,
+        help="GGUF context length / truncate budget (default: 512; lower = faster CPU embeds).",
+    )
     return parser
 
 
@@ -283,6 +388,91 @@ def run_validate_structure(args: argparse.Namespace) -> int:
     return 0 if corpus_report.ok else 1
 
 
+def run_compare_qwen_quant(args: argparse.Namespace) -> int:
+    import os
+
+    from shamela_rag.embeddings.qwen import download_qwen_gguf
+    from shamela_rag.eval.qwen_quant import (
+        default_variant_specs,
+        format_quant_table,
+        run_qwen_quant_comparison,
+        write_quant_artifacts,
+    )
+
+    def status(message: str) -> None:
+        print(f"[compare-qwen-quant] {message}", flush=True)
+        logger.info("%s", message)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    if args.chunks is not None and args.golden is None:
+        logger.error("--golden is required when --chunks is set")
+        return 1
+    if args.corpus_root is not None and args.golden is None:
+        logger.error("--golden is required when --corpus-root is set")
+        return 1
+
+    gguf_path = args.gguf
+    gguf_baseline = args.gguf_baseline
+    hf_home = os.environ.get("HF_HOME")
+    gguf_dir: Path | None = args.gguf_dir or (Path(hf_home) if hf_home else None)
+
+    try:
+        if args.download_gguf:
+            status(f"downloading official Q4_K_M GGUF into {gguf_dir or 'Hugging Face cache'}")
+            gguf_path = download_qwen_gguf(local_dir=gguf_dir)
+            status(f"GGUF ready at {gguf_path}")
+        if args.download_gguf_q8:
+            from shamela_rag.embeddings.qwen import QWEN3_EMBEDDING_GGUF_Q8_0
+
+            status(f"downloading official Q8_0 GGUF into {gguf_dir or 'Hugging Face cache'}")
+            gguf_baseline = download_qwen_gguf(
+                filename=QWEN3_EMBEDDING_GGUF_Q8_0, local_dir=gguf_dir
+            )
+            status(f"GGUF Q8 baseline ready at {gguf_baseline}")
+    except Exception as exc:  # noqa: BLE001 - surface download/auth failures cleanly
+        logger.error("GGUF download failed: %s", exc)
+        return 1
+
+    if not args.skip_fp16 and not args.no_int8 and gguf_path is None:
+        status(
+            "tip: on 16GB RAM / no GPU use "
+            "--skip-fp16 --no-int8 --no-int4 --gguf <q4> --download-gguf-q8"
+        )
+
+    try:
+        specs = default_variant_specs(
+            include_fp16=not args.skip_fp16,
+            include_int8=not args.no_int8,
+            include_int4=not args.no_int4,
+            gguf_path=gguf_path,
+            gguf_baseline_path=gguf_baseline,
+            device=args.device,
+            gguf_n_ctx=args.gguf_n_ctx,
+        )
+    except ValueError as exc:
+        logger.error("%s", exc)
+        return 1
+    status(f"variants: {[s.name for s in specs]}")
+    report = run_qwen_quant_comparison(
+        specs,
+        chunks_path=args.chunks,
+        corpus_root=args.corpus_root,
+        golden_path=args.golden,
+        chunk_cache_path=args.output_dir / "eval_chunks.jsonl",
+        force_rechunk=args.force_rechunk,
+        candidate_limit=args.candidate_limit,
+        max_chunks=args.max_chunks,
+        progress=status,
+    )
+    args.output_dir.mkdir(parents=True, exist_ok=True)
+    write_quant_artifacts(args.output_dir, report)
+    print(format_quant_table(report), end="")
+    status(f"done — see {args.output_dir / 'comparison_table.md'}")
+    return 0
+
+
 def run_ask(args: argparse.Namespace) -> int:
     import json as _json
 
@@ -350,6 +540,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_build_bm25(args)
     if args.command == "ask":
         return run_ask(args)
+    if args.command == "compare-qwen-quant":
+        return run_compare_qwen_quant(args)
     parser.error(f"unknown command: {args.command}")  # required subparser makes this unreachable
     return 2
 

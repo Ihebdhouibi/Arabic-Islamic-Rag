@@ -26,6 +26,16 @@ from shamela_rag.eval.metrics import (
     reciprocal_rank,
     score_query,
 )
+from shamela_rag.eval.qwen_quant import (
+    QuantComparisonReport,
+    QuantVariantMetrics,
+    QuantVariantSpec,
+    build_recommendation,
+    default_variant_specs,
+    format_quant_table,
+    run_qwen_quant_comparison,
+    write_quant_artifacts,
+)
 
 __all__ = [
     "AggregateScore",
@@ -33,13 +43,19 @@ __all__ = [
     "EvalReport",
     "GoldenExample",
     "GoldenSource",
+    "QuantComparisonReport",
+    "QuantVariantMetrics",
+    "QuantVariantSpec",
     "QueryScore",
     "RunConfig",
     "aggregate",
     "book_ids_from_hits",
+    "build_recommendation",
     "dcg_at_k",
+    "default_variant_specs",
     "evaluate_retrieval",
     "format_comparison",
+    "format_quant_table",
     "hit_at_k",
     "load_golden_dataset",
     "ndcg_at_k",
@@ -47,5 +63,7 @@ __all__ = [
     "recall_at_k",
     "reciprocal_rank",
     "run_comparison",
+    "run_qwen_quant_comparison",
     "score_query",
+    "write_quant_artifacts",
 ]
