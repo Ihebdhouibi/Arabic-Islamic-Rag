@@ -343,9 +343,7 @@ def build_recommendation(variants: Sequence[QuantVariantMetrics]) -> str:
         )
 
     def _acceptable(v: QuantVariantMetrics) -> bool:
-        return (
-            v.mean_cosine_vs_baseline is not None and v.mean_cosine_vs_baseline >= 0.95
-        )
+        return v.mean_cosine_vs_baseline is not None and v.mean_cosine_vs_baseline >= 0.95
 
     good = [v for v in candidates if _acceptable(v)]
     if not good:

@@ -420,17 +420,13 @@ def run_compare_qwen_quant(args: argparse.Namespace) -> int:
 
     try:
         if args.download_gguf:
-            status(
-                f"downloading official Q4_K_M GGUF into {gguf_dir or 'Hugging Face cache'}"
-            )
+            status(f"downloading official Q4_K_M GGUF into {gguf_dir or 'Hugging Face cache'}")
             gguf_path = download_qwen_gguf(local_dir=gguf_dir)
             status(f"GGUF ready at {gguf_path}")
         if args.download_gguf_q8:
             from shamela_rag.embeddings.qwen import QWEN3_EMBEDDING_GGUF_Q8_0
 
-            status(
-                f"downloading official Q8_0 GGUF into {gguf_dir or 'Hugging Face cache'}"
-            )
+            status(f"downloading official Q8_0 GGUF into {gguf_dir or 'Hugging Face cache'}")
             gguf_baseline = download_qwen_gguf(
                 filename=QWEN3_EMBEDDING_GGUF_Q8_0, local_dir=gguf_dir
             )
