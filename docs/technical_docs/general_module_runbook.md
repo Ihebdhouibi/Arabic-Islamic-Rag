@@ -102,12 +102,12 @@ curl -s -X POST localhost:8000/ask -H "content-type: application/json" \
 The response is a grounded answer plus structured citations (book, author, page, category, snippet,
 `is_footnote`), each resolving to a real chunk.
 
-## 7. What you get, and local generation
+## 7. What you get, and generation options
 
 - Real **retrieval**: BGE-M3 (or Qwen3) dense + surface-BM25 sparse -> RRF -> cross-encoder rerank
   -> authority boost -> parent/neighbor expansion, with citations mapped to Postgres provenance.
 - **Answer text** defaults to the in-memory stub (`SHAMELA_LLM_BACKEND=memory`). For real prose,
-  use a local model (no external API). `ask`, `/ask`, and Streamlit read these env vars.
+  use a local model or a hosted API. `ask`, `/ask`, and Streamlit all read these env vars.
 
 ### 7.1 Ollama (easiest on Windows)
 
@@ -130,6 +130,28 @@ $env:SHAMELA_LLM_N_GPU_LAYERS = "0"
 
 Download a Q4_K_M instruct GGUF (e.g. Qwen2.5-7B-Instruct, ~4.7 GB / ~5-8 GB RAM). If
 `llama-cpp-python` fails to build, use Ollama.
+
+### 7.3 Hosted OpenAI-compatible API (Together.ai, DeepSeek, DashScope, ...)
+
+No local weights, no GPU/RAM budget on this machine at all — a plain HTTPS call per question.
+Any provider that speaks the standard `/chat/completions` schema with Bearer auth works by just
+changing the base URL and model name.
+
+```bash
+$env:SHAMELA_LLM_BACKEND = "openai_compatible"
+$env:SHAMELA_LLM_API_BASE_URL = "https://api.together.xyz/v1"   # default; omit to use it
+$env:SHAMELA_LLM_API_KEY = "..."
+$env:SHAMELA_LLM_API_MODEL = "Qwen/Qwen3.5-9B"                  # or a DeepSeek model, etc.
+```
+
+Notes from getting a Together.ai key working: only some models are pay-per-token **serverless**
+(e.g. `Qwen/Qwen3.5-9B`, `deepseek-ai/DeepSeek-V4-Flash-0731` confirmed working) — larger/newer
+ones (`Qwen/Qwen3-8B`, `deepseek-ai/DeepSeek-V3.1`, Turbo variants) return
+`model_not_available` and require spinning up a paid dedicated endpoint first. Reasoning-style
+models spend part of `max_tokens` on an internal `reasoning` field before the real answer — keep
+`SHAMELA_LLM_MAX_TOKENS` generous (a few hundred) or you'll get an empty response cut off
+mid-thought. Together's embeddings catalog is English-only (`bge-base-en-v1.5`) — this backend is
+for generation only, it does not help with embedding/ingestion.
 
 ## 8. Evaluate (optional)
 

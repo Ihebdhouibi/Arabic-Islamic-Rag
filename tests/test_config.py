@@ -20,6 +20,9 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.root_expansion_enabled is False
     assert s.root_expansion_state_path.name == "root_expansion_state.json"
     assert s.llm_backend == "memory"
+    assert s.llm_api_base_url.startswith("https://")
+    assert s.llm_api_key == ""
+    assert s.llm_api_model == ""
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:

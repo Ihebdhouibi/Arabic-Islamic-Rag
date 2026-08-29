@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
     # Local generation (default: in-memory stub; CI stays offline)
-    llm_backend: Literal["memory", "llamacpp", "ollama"] = "memory"
+    llm_backend: Literal["memory", "llamacpp", "ollama", "openai_compatible"] = "memory"
     llm_gguf_path: Path | None = None
     llm_ollama_url: str = "http://localhost:11434"
     llm_ollama_model: str = ""
@@ -50,6 +50,11 @@ class Settings(BaseSettings):
     llm_n_ctx: int = Field(default=4096, gt=0)
     llm_n_threads: int | None = None
     llm_n_gpu_layers: int = Field(default=0, ge=0)
+
+    # Hosted OpenAI-compatible generation API (Together.ai, DeepSeek, DashScope, ...)
+    llm_api_base_url: str = "https://api.together.xyz/v1"
+    llm_api_key: str = ""
+    llm_api_model: str = ""
 
     # Corpus location (the extracted Shamela4 dataset root)
     corpus_root: Path = Path(".")

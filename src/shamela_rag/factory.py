@@ -32,7 +32,8 @@ def build_embedder(model: str | None) -> EmbeddingProvider:
 
 
 def build_generation_provider() -> GenerationProvider:
-    """In-memory stub, llama.cpp GGUF, or local Ollama — from ``SHAMELA_LLM_*`` settings."""
+    """In-memory stub, llama.cpp GGUF, local Ollama, or a hosted OpenAI-compatible API —
+    from ``SHAMELA_LLM_*`` settings."""
     settings = get_settings()
     backend = settings.llm_backend
     if backend == "memory":
@@ -60,6 +61,24 @@ def build_generation_provider() -> GenerationProvider:
         return OllamaGenerationProvider(
             settings.llm_ollama_model,
             base_url=settings.llm_ollama_url,
+            max_tokens=settings.llm_max_tokens,
+            temperature=settings.llm_temperature,
+        )
+    if backend == "openai_compatible":
+        if not settings.llm_api_key.strip():
+            raise ValueError(
+                "SHAMELA_LLM_API_KEY is required when SHAMELA_LLM_BACKEND=openai_compatible"
+            )
+        if not settings.llm_api_model.strip():
+            raise ValueError(
+                "SHAMELA_LLM_API_MODEL is required when SHAMELA_LLM_BACKEND=openai_compatible"
+            )
+        from shamela_rag.generation.local import OpenAICompatibleGenerationProvider
+
+        return OpenAICompatibleGenerationProvider(
+            settings.llm_api_model,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_api_base_url,
             max_tokens=settings.llm_max_tokens,
             temperature=settings.llm_temperature,
         )
