@@ -40,6 +40,12 @@ class Settings(BaseSettings):
     dense_embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # Dense embedding backend: local weights or OpenRouter embeddings API.
+    embedding_backend: Literal["local", "openrouter"] = "local"
+    embedding_api_base_url: str = "https://openrouter.ai/api/v1"
+    embedding_api_key: str = ""
+    embedding_api_batch_size: int = Field(default=32, gt=0)
+
     # Local generation (default: in-memory stub; CI stays offline)
     llm_backend: Literal["memory", "llamacpp", "ollama", "openai_compatible"] = "memory"
     llm_gguf_path: Path | None = None

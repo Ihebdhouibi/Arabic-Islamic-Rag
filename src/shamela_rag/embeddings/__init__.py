@@ -13,6 +13,12 @@ from shamela_rag.embeddings.bge_m3 import (
     lexical_weights_to_sparse,
 )
 from shamela_rag.embeddings.bm25 import Bm25Encoder, SparseVector, tokenize
+from shamela_rag.embeddings.openrouter import (
+    OPENROUTER_API_BASE_URL,
+    OPENROUTER_BGE_M3,
+    OPENROUTER_QWEN3_EMBEDDING_8B,
+    OpenRouterEmbeddingProvider,
+)
 from shamela_rag.embeddings.provider import EmbeddingProvider, InMemoryEmbeddingProvider
 from shamela_rag.embeddings.qwen import (
     DEFAULT_EMBEDDING_DIMS,
@@ -37,6 +43,10 @@ __all__ = [
     "DEFAULT_TASK_DESCRIPTION",
     "EmbeddingProvider",
     "InMemoryEmbeddingProvider",
+    "OPENROUTER_API_BASE_URL",
+    "OPENROUTER_BGE_M3",
+    "OPENROUTER_QWEN3_EMBEDDING_8B",
+    "OpenRouterEmbeddingProvider",
     "QWEN3_EMBEDDING_GGUF_Q4_K_M",
     "QWEN3_EMBEDDING_GGUF_Q8_0",
     "QWEN3_EMBEDDING_GGUF_REPO_ID",
