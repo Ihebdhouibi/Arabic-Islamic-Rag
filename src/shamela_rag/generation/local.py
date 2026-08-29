@@ -1,4 +1,5 @@
-"""Local ``GenerationProvider`` backends: llama.cpp GGUF and Ollama on localhost."""
+"""Local/hosted ``GenerationProvider`` backends: llama.cpp GGUF, Ollama, and any
+OpenAI-compatible HTTP API (Together.ai, DeepSeek, DashScope, ...)."""
 
 from __future__ import annotations
 
@@ -249,4 +250,128 @@ class OllamaGenerationProvider(GenerationProvider):
         parsed: Any = json.loads(text)
         if not isinstance(parsed, dict):
             raise ValueError("Ollama returned a non-object JSON payload")
+        return parsed
+
+
+def _sse_lines(response: Any) -> Iterator[str]:
+    for raw in response:
+        line = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        line = line.strip()
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        data = line[len("data:") :].strip()
+        if data == "[DONE]":
+            return
+        yield data
+
+
+class OpenAICompatibleGenerationProvider(GenerationProvider):
+    """Any OpenAI-compatible chat-completions HTTP API (Together.ai, DeepSeek, DashScope, ...).
+
+    Stdlib ``urllib`` only, same shape as :class:`OllamaGenerationProvider` but with Bearer auth,
+    the ``/chat/completions`` path, and SSE (``data: ...``) streaming instead of raw NDJSON.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        api_key: str,
+        base_url: str = "https://api.together.xyz/v1",
+        max_tokens: int = 512,
+        temperature: float = 0.1,
+        timeout_seconds: float = 120.0,
+        opener: Any | None = None,
+    ) -> None:
+        name = model.strip()
+        if not name:
+            raise ValueError("model name must be non-empty")
+        key = api_key.strip()
+        if not key:
+            raise ValueError("api_key must be non-empty")
+        _require_positive("max_tokens", max_tokens)
+        _require_non_negative_float("temperature", temperature)
+        if timeout_seconds <= 0:
+            raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
+
+        self._model = name
+        self._api_key = key
+        self._base_url = base_url.rstrip("/")
+        self._max_tokens = max_tokens
+        self._temperature = temperature
+        self._timeout_seconds = timeout_seconds
+        self._opener = opener or urllib.request.urlopen
+
+    def generate(self, prompt: str, *, max_tokens: int | None = None) -> str:
+        payload = self._post(
+            {
+                "model": self._model,
+                "messages": _chat_messages(prompt),
+                "max_tokens": _resolve_max_tokens(max_tokens, self._max_tokens),
+                "temperature": self._temperature,
+                "stream": False,
+            }
+        )
+        return _completion_text(payload)
+
+    def generate_stream(self, prompt: str, *, max_tokens: int | None = None) -> Iterator[str]:
+        request = self._chat_request(
+            {
+                "model": self._model,
+                "messages": _chat_messages(prompt),
+                "max_tokens": _resolve_max_tokens(max_tokens, self._max_tokens),
+                "temperature": self._temperature,
+                "stream": True,
+            }
+        )
+        try:
+            with self._opener(request, timeout=self._timeout_seconds) as response:
+                for data in _sse_lines(response):
+                    chunk = json.loads(data)
+                    if not isinstance(chunk, dict):
+                        continue
+                    piece = _delta_text(chunk)
+                    if piece:
+                        yield piece
+        except urllib.error.HTTPError as exc:
+            raise ConnectionError(self._api_error_message(exc)) from exc
+        except urllib.error.URLError as exc:
+            raise ConnectionError(f"{self._base_url} request failed: {exc}") from exc
+
+    def _headers(self) -> dict[str, str]:
+        return {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {self._api_key}",
+        }
+
+    def _chat_request(self, payload: dict[str, Any]) -> urllib.request.Request:
+        return urllib.request.Request(
+            f"{self._base_url}/chat/completions",
+            data=json.dumps(payload).encode("utf-8"),
+            headers=self._headers(),
+            method="POST",
+        )
+
+    def _api_error_message(self, exc: urllib.error.HTTPError) -> str:
+        try:
+            body = json.loads(exc.read().decode("utf-8"))
+        except (json.JSONDecodeError, UnicodeDecodeError, OSError):
+            return f"{self._base_url} request failed: HTTP {exc.code}"
+        message = body.get("error", {}).get("message") if isinstance(body, dict) else None
+        return f"{self._base_url} request failed: HTTP {exc.code} - {message or body}"
+
+    def _post(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            with self._opener(
+                self._chat_request(payload), timeout=self._timeout_seconds
+            ) as response:
+                raw = response.read()
+        except urllib.error.HTTPError as exc:
+            raise ConnectionError(self._api_error_message(exc)) from exc
+        except urllib.error.URLError as exc:
+            raise ConnectionError(f"{self._base_url} request failed: {exc}") from exc
+        text = raw.decode("utf-8") if isinstance(raw, bytes) else str(raw)
+        parsed: Any = json.loads(text)
+        if not isinstance(parsed, dict):
+            raise ValueError(f"{self._base_url} returned a non-object JSON payload")
         return parsed
