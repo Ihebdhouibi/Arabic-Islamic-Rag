@@ -104,3 +104,37 @@ def test_ask_without_configured_service_is_503() -> None:
 def test_ask_rejects_non_positive_k(bad_k: int) -> None:
     response = _client(_FakeQA(_ANSWER)).post("/ask", json={"question": "س", "k": bad_k})
     assert response.status_code == 422
+
+
+def test_ask_requires_api_key_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from shamela_rag.config import Settings
+
+    app_module = importlib.import_module("shamela_rag.api.app")
+    monkeypatch.setattr(
+        app_module, "get_settings", lambda: Settings(_env_file=None, api_auth_key="secret")
+    )
+    client = _client(_FakeQA(_ANSWER))
+
+    no_key = client.post("/ask", json={"question": "س"})
+    assert no_key.status_code == 401
+
+    wrong_key = client.post("/ask", json={"question": "س"}, headers={"X-API-Key": "nope"})
+    assert wrong_key.status_code == 401
+
+    right_key = client.post("/ask", json={"question": "س"}, headers={"X-API-Key": "secret"})
+    assert right_key.status_code == 200
+
+
+def test_health_never_requires_api_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    import importlib
+
+    from shamela_rag.config import Settings
+
+    app_module = importlib.import_module("shamela_rag.api.app")
+    monkeypatch.setattr(
+        app_module, "get_settings", lambda: Settings(_env_file=None, api_auth_key="secret")
+    )
+    response = _client().get("/health")
+    assert response.status_code == 200

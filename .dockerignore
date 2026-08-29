@@ -1,0 +1,24 @@
+# Never send the corpus (19-31 GB) or local dev artifacts into the build context.
+[0-9][0-9]__*/
+_meta/
+
+.git/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+.env
+bm25_state.json
+root_expansion_state.json
+artifacts/
+
+docs/
+tests/
+demo/

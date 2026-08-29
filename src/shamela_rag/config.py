@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     dense_embedding_model: str = "BAAI/bge-m3"
     reranker_model: str = "BAAI/bge-reranker-v2-m3"
 
+    # API auth: when set, /ask requires header "X-API-Key: <value>". Empty (default) = no auth,
+    # so local dev / CI stay frictionless; set it before exposing the API beyond localhost.
+    api_auth_key: str = ""
+
     # Local generation (default: in-memory stub; CI stays offline)
     llm_backend: Literal["memory", "llamacpp", "ollama", "openai_compatible"] = "memory"
     llm_gguf_path: Path | None = None
