@@ -1,8 +1,9 @@
 """Command-line entry point for the shamela-rag package.
 
-Exposes ``ingest`` (M3-08), ``validate-structure`` (M6-06), ``build-bm25``, ``ask``, and
-``compare-qwen-quant`` (issue #135). Heavy embedding backends are imported lazily so ``--help``
-and argument parsing stay fast and offline.
+Exposes ``ingest``, ``validate-structure``, ``build-bm25``, ``ask``,
+``compare-qwen-quant``, and ``compare-dense-models``.
+Heavy embedding backends are imported lazily so ``--help`` and argument parsing stay fast and
+offline.
 """
 
 from __future__ import annotations
@@ -231,6 +232,78 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=512,
         help="GGUF context length / truncate budget (default: 512; lower = faster CPU embeds).",
+    )
+
+    dense = subcommands.add_parser(
+        "compare-dense-models",
+        help="M6-03: compare Qwen3 vs BGE-M3 retrieval on the golden set.",
+    )
+    dense.add_argument(
+        "--output-dir",
+        type=Path,
+        required=True,
+        help="Directory for dense_only_table.md, metrics, and embedding caches.",
+    )
+    dense.add_argument(
+        "--golden",
+        type=Path,
+        default=Path("docs/technical_docs/general_qa_golden_staging.jsonl"),
+        help="Golden JSONL (default: staging set).",
+    )
+    dense.add_argument(
+        "--chunks",
+        type=Path,
+        required=True,
+        help="Eval chunk JSONL (text + book_id).",
+    )
+    dense.add_argument(
+        "--max-chunks",
+        type=int,
+        default=2048,
+        help="Round-robin chunk subsample cap (default: 2048).",
+    )
+    dense.add_argument(
+        "--candidate-limit",
+        type=int,
+        default=100,
+        help="Dense candidate book limit (default: 100).",
+    )
+    dense.add_argument(
+        "--batch-size",
+        type=int,
+        default=16,
+        help="Embedding batch size (default: 16).",
+    )
+    dense.add_argument(
+        "--force-reembed",
+        action="store_true",
+        help="Ignore embedding caches under --output-dir.",
+    )
+    dense.add_argument(
+        "--stage",
+        choices=("dense-only", "hybrid-bm25", "bge-sparse", "both"),
+        default="dense-only",
+        help=(
+            "Stage: dense-only, hybrid-bm25, bge-sparse, or both (stages 1+2)."
+        ),
+    )
+    dense.add_argument(
+        "--fusion-pool",
+        type=int,
+        default=200,
+        help="Per-list pool size before RRF in hybrid stage (default: 200).",
+    )
+    dense.add_argument(
+        "--rrf-k",
+        type=int,
+        default=60,
+        help="RRF k for hybrid fusion (default: 60).",
+    )
+    dense.add_argument(
+        "--sparse-batch-size",
+        type=int,
+        default=8,
+        help="BGE-M3 learned-sparse batch size for bge-sparse stage (default: 8).",
     )
     return parser
 
@@ -473,6 +546,114 @@ def run_compare_qwen_quant(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_compare_dense_models(args: argparse.Namespace) -> int:
+    """Run M6-03 dense-model comparison stages."""
+    from shamela_rag.embeddings.bge_m3 import BgeM3EmbeddingProvider
+    from shamela_rag.eval.comparison import format_comparison
+    from shamela_rag.eval.model_ab import (
+        run_bge_sparse_ablation,
+        run_dense_only_comparison,
+        run_hybrid_bm25_comparison,
+    )
+    from shamela_rag.factory import build_embedder
+
+    def status(message: str) -> None:
+        print(f"[compare-dense-models] {message}", flush=True)
+        logger.info("%s", message)
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    if not args.chunks.is_file():
+        logger.error("chunks file not found: %s", args.chunks)
+        return 1
+    if not args.golden.is_file():
+        logger.error("golden file not found: %s", args.golden)
+        return 1
+
+    settings = get_settings()
+    status(f"embedding_backend={settings.embedding_backend} stage={args.stage}")
+    try:
+        models = {
+            "bge-m3": build_embedder("bge-m3"),
+            "qwen3": build_embedder("qwen3"),
+        }
+    except Exception as exc:  # noqa: BLE001
+        logger.error("failed to build embedders: %s", exc)
+        return 1
+
+    last_report = None
+    try:
+        if args.stage in ("dense-only", "both"):
+            last_report = run_dense_only_comparison(
+                models=models,
+                golden_path=args.golden,
+                chunks_path=args.chunks,
+                output_dir=args.output_dir,
+                max_chunks=args.max_chunks,
+                candidate_limit=args.candidate_limit,
+                batch_size=args.batch_size,
+                force_reembed=args.force_reembed,
+                progress=status,
+            )
+            print(format_comparison(last_report), end="")
+            status(f"dense-only done — see {args.output_dir / 'dense_only_table.md'}")
+        if args.stage in ("hybrid-bm25", "both"):
+            last_report = run_hybrid_bm25_comparison(
+                models=models,
+                golden_path=args.golden,
+                chunks_path=args.chunks,
+                output_dir=args.output_dir,
+                max_chunks=args.max_chunks,
+                candidate_limit=args.candidate_limit,
+                fusion_pool=args.fusion_pool,
+                rrf_k=args.rrf_k,
+                batch_size=args.batch_size,
+                force_reembed=args.force_reembed,
+                require_dense_cache=args.stage == "hybrid-bm25",
+                progress=status,
+            )
+            print(format_comparison(last_report), end="")
+            status(f"hybrid done — see {args.output_dir / 'hybrid_bm25_table.md'}")
+        if args.stage == "bge-sparse":
+            try:
+                sparse_provider = BgeM3EmbeddingProvider(
+                    device="cpu",
+                    batch_size=args.sparse_batch_size,
+                    use_fp16=False,
+                    enable_sparse=True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "failed to load BGE-M3 for learned-sparse (need shamela-rag[bge]): %s",
+                    exc,
+                )
+                return 1
+            last_report = run_bge_sparse_ablation(
+                dense_provider=models["bge-m3"],
+                sparse_provider=sparse_provider,
+                golden_path=args.golden,
+                chunks_path=args.chunks,
+                output_dir=args.output_dir,
+                max_chunks=args.max_chunks,
+                candidate_limit=args.candidate_limit,
+                fusion_pool=args.fusion_pool,
+                rrf_k=args.rrf_k,
+                dense_batch_size=args.batch_size,
+                sparse_batch_size=args.sparse_batch_size,
+                force_reembed=args.force_reembed,
+                require_dense_cache=not args.force_reembed,
+                progress=status,
+            )
+            print(format_comparison(last_report), end="")
+            status(f"bge-sparse done — see {args.output_dir / 'bge_sparse_table.md'}")
+    except Exception as exc:  # noqa: BLE001
+        logger.error("comparison failed: %s", exc)
+        return 1
+
+    return 0
+
+
 def run_ask(args: argparse.Namespace) -> int:
     import json as _json
 
@@ -542,6 +723,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_ask(args)
     if args.command == "compare-qwen-quant":
         return run_compare_qwen_quant(args)
+    if args.command == "compare-dense-models":
+        return run_compare_dense_models(args)
     parser.error(f"unknown command: {args.command}")  # required subparser makes this unreachable
     return 2
 

@@ -153,6 +153,38 @@ models spend part of `max_tokens` on an internal `reasoning` field before the re
 mid-thought. Together's embeddings catalog is English-only (`bge-base-en-v1.5`) — this backend is
 for generation only, it does not help with embedding/ingestion.
 
+### 7.4 OpenRouter dense embeddings
+
+OpenRouter hosts `qwen/qwen3-embedding-8b` and `baai/bge-m3`. Put the key in `.env` only:
+
+```bash
+# .env
+SHAMELA_EMBEDDING_BACKEND=openrouter
+SHAMELA_EMBEDDING_API_BASE_URL=https://openrouter.ai/api/v1
+SHAMELA_EMBEDDING_API_KEY=...
+```
+
+Then `build_embedder("bge-m3")` / `build_embedder("qwen3")` use OpenRouter.
+
+Run the three-stage model comparison:
+
+```bash
+shamela-rag compare-dense-models --stage dense-only \
+  --output-dir artifacts/m6-dense-openrouter \
+  --chunks artifacts/qwen-quant-golden/eval_chunks.jsonl \
+  --golden docs/technical_docs/general_qa_golden_staging.jsonl
+
+shamela-rag compare-dense-models --stage hybrid-bm25 --output-dir artifacts/m6-dense-openrouter \
+  --chunks artifacts/qwen-quant-golden/eval_chunks.jsonl \
+  --golden docs/technical_docs/general_qa_golden_staging.jsonl
+
+shamela-rag compare-dense-models --stage bge-sparse --output-dir artifacts/m6-dense-openrouter \
+  --chunks artifacts/qwen-quant-golden/eval_chunks.jsonl \
+  --golden docs/technical_docs/general_qa_golden_staging.jsonl
+```
+
+Stage 3 requires `pip install -e ".[bge]"` for BGE-M3 learned-sparse vectors.
+
 ## 8. Evaluate (optional)
 
 With a golden set (`docs/technical_docs/general_qa_golden_staging.jsonl` format), score retrieval:

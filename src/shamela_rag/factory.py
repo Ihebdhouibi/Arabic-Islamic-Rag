@@ -22,13 +22,42 @@ from shamela_rag.retrieval.translate import Translator
 
 def build_embedder(model: str | None) -> EmbeddingProvider:
     """Construct a dense embedding provider by name (``bge-m3`` default, or ``qwen3``)."""
-    if (model or "bge-m3") == "qwen3":
+    settings = get_settings()
+    name = model or "bge-m3"
+    if settings.embedding_backend == "openrouter":
+        return _build_openrouter_embedder(name, settings)
+    if name == "qwen3":
         from shamela_rag.embeddings.qwen import Qwen3EmbeddingProvider
 
         return Qwen3EmbeddingProvider()
     from shamela_rag.embeddings.bge_m3 import BgeM3EmbeddingProvider
 
     return BgeM3EmbeddingProvider()
+
+
+def _build_openrouter_embedder(model: str, settings: Settings) -> EmbeddingProvider:
+    if not settings.embedding_api_key.strip():
+        raise ValueError(
+            "SHAMELA_EMBEDDING_API_KEY is required when SHAMELA_EMBEDDING_BACKEND=openrouter"
+        )
+    from shamela_rag.embeddings.openrouter import (
+        OPENROUTER_BGE_M3,
+        OPENROUTER_QWEN3_EMBEDDING_8B,
+        OpenRouterEmbeddingProvider,
+    )
+
+    if model == "qwen3":
+        remote_model = OPENROUTER_QWEN3_EMBEDDING_8B
+    elif model == "bge-m3":
+        remote_model = OPENROUTER_BGE_M3
+    else:
+        raise ValueError(f"unsupported embedding model for openrouter backend: {model!r}")
+    return OpenRouterEmbeddingProvider(
+        remote_model,
+        api_key=settings.embedding_api_key,
+        base_url=settings.embedding_api_base_url,
+        batch_size=settings.embedding_api_batch_size,
+    )
 
 
 def build_generation_provider() -> GenerationProvider:

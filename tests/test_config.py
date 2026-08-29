@@ -23,6 +23,9 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.llm_api_base_url.startswith("https://")
     assert s.llm_api_key == ""
     assert s.llm_api_model == ""
+    assert s.embedding_backend == "local"
+    assert s.embedding_api_key == ""
+    assert "openrouter" in s.embedding_api_base_url
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
