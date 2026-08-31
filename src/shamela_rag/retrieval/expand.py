@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from shamela_rag.chunking.tokens import count_tokens
 from shamela_rag.db.models import Chunk
 from shamela_rag.retrieval.rerank import RerankedChunk
+from shamela_rag.retrieval.stable_ids import stable_chunk_id
 
 DEFAULT_NEIGHBOR_WINDOW = 1
 DEFAULT_MAX_EXPANDED_TOKENS = 2048
@@ -89,13 +90,13 @@ class ContextExpander:
 
         if config.mode is ExpandMode.NONE or row.section_id is None:
             return _build_passage(
-                hit, row, (_chunk_part(row, is_hit=True),), config.include_context_header
+                session, hit, row, (_chunk_part(row, is_hit=True),), config.include_context_header
             )
 
         siblings = _section_siblings(session, row.section_id, row.content_role)
         if not siblings:
             return _build_passage(
-                hit, row, (_chunk_part(row, is_hit=True),), config.include_context_header
+                session, hit, row, (_chunk_part(row, is_hit=True),), config.include_context_header
             )
 
         hit_index = _index_of(siblings, hit.chunk_id)
@@ -106,7 +107,7 @@ class ContextExpander:
 
         selected = _apply_token_cap(siblings, hit_index, indices, config.max_expanded_tokens)
         parts = tuple(_chunk_part(siblings[index], is_hit=index == hit_index) for index in selected)
-        return _build_passage(hit, row, parts, config.include_context_header)
+        return _build_passage(session, hit, row, parts, config.include_context_header)
 
 
 def _section_siblings(session: Session, section_id: int, content_role: str) -> list[Chunk]:
@@ -166,6 +167,7 @@ def _chunk_part(chunk: Chunk, *, is_hit: bool) -> ExpandedChunkPart:
 
 
 def _build_passage(
+    session: Session,
     hit: RerankedChunk,
     hit_row: Chunk,
     parts: Sequence[ExpandedChunkPart],
@@ -183,6 +185,8 @@ def _build_passage(
     payload.setdefault("content_role", hit_row.content_role)
     if hit_row.context_header:
         payload.setdefault("context_header", hit_row.context_header)
+    if hit_row.start_page_id is not None:
+        payload["stable_id"] = stable_chunk_id(session, hit_row)
 
     return ExpandedPassage(
         hit_chunk_id=hit.chunk_id,

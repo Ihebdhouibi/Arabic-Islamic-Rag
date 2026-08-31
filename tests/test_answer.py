@@ -25,6 +25,7 @@ def _passage(
         "page_id": page_id,
         "content_role": content_role,
         "book_id": 1,
+        "stable_id": f"shamela:1:{page_id}:1",
     }
     return ExpandedPassage(
         hit_chunk_id=chunk_id,
@@ -115,6 +116,7 @@ def test_citation_includes_category_and_bounded_snippet() -> None:
             "page_id": 1,
             "content_role": "body",
             "category_id": 16,
+            "stable_id": "shamela:1:1:1",
         },
     )
     citation = AnswerAssembler(InMemoryGenerationProvider()).assemble("q", [passage]).citations[0]

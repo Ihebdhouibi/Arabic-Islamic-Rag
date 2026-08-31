@@ -19,7 +19,7 @@ from shamela_rag.retrieval.translate import InMemoryTranslator
 
 _ANSWER = Answer(
     text="جواب المصدر",
-    citations=(Citation(1, 5, "كتاب", "مؤلف", "3", "body"),),
+    citations=(Citation(1, "shamela:1:3:1", 5, "كتاب", "مؤلف", "3", "body"),),
     deflected=False,
 )
 
@@ -116,6 +116,7 @@ def test_ask_cli_json_output(
     assert cli.main(["ask", "سؤال", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["answer"] == "جواب المصدر"
+    assert payload["citations"][0]["id"] == "shamela:1:3:1"
     assert payload["citations"][0]["chunk_id"] == 5
 
 

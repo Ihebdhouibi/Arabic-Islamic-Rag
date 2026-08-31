@@ -22,7 +22,8 @@ class AskRequest(BaseModel):
 
 class CitationOut(BaseModel):
     marker: int = Field(description="1-based source number matching the answer text.")
-    chunk_id: int = Field(description="Postgres chunk id this citation resolves to.")
+    id: str = Field(description="Stable citation id (survives re-ingest).")
+    chunk_id: int = Field(description="Postgres serial id; kept during transition.")
     book_title: str
     author: str
     page: str
@@ -45,6 +46,7 @@ class AnswerResponse(BaseModel):
             citations=[
                 CitationOut(
                     marker=citation.marker,
+                    id=citation.id,
                     chunk_id=citation.chunk_id,
                     book_title=citation.book_title,
                     author=citation.author,
