@@ -25,7 +25,17 @@ class _FakeQA:
 _ANSWER = Answer(
     text="قال الشافعي بالقياس",
     citations=(
-        Citation(1, 5, "الرسالة", "الشافعي", "42", "body", category=16, snippet="قال الشافعي"),
+        Citation(
+            1,
+            "shamela:1:42:1",
+            5,
+            "الرسالة",
+            "الشافعي",
+            "42",
+            "body",
+            category=16,
+            snippet="قال الشافعي",
+        ),
     ),
     deflected=False,
 )
@@ -55,6 +65,7 @@ def test_ask_returns_cited_answer() -> None:
     assert body["citations"] == [
         {
             "marker": 1,
+            "id": "shamela:1:42:1",
             "chunk_id": 5,
             "book_title": "الرسالة",
             "author": "الشافعي",
@@ -80,7 +91,9 @@ def test_ask_passes_filters_through() -> None:
 def test_ask_footnote_citation_is_marked() -> None:
     footnote = Answer(
         text="جواب",
-        citations=(Citation(1, 9, "كتاب", "مؤلف", "3", "footnote", snippet="حاشية"),),
+        citations=(
+            Citation(1, "shamela:1:3:1", 9, "كتاب", "مؤلف", "3", "footnote", snippet="حاشية"),
+        ),
         deflected=False,
     )
     body = _client(_FakeQA(footnote)).post("/ask", json={"question": "س"}).json()

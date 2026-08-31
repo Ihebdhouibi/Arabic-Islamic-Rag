@@ -26,6 +26,7 @@ from shamela_rag.retrieval.expand import ContextExpander
 from shamela_rag.retrieval.rerank import LexicalOverlapReranker
 from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
 from shamela_rag.retrieval.sparse import SparseRetriever
+from shamela_rag.retrieval.stable_ids import resolve_stable_chunk_id
 from shamela_rag.retrieval.translate import InMemoryTranslator
 from shamela_rag.vectorstore.qdrant_store import QdrantStore
 
@@ -114,6 +115,9 @@ def test_answer_general_question_is_cited_end_to_end(world: _World) -> None:
             chunk = session.get(Chunk, citation.chunk_id)
             assert chunk is not None, f"citation {citation.chunk_id} does not resolve to a chunk"
             assert chunk.book_id == _BOOK_ID
+            resolved = resolve_stable_chunk_id(session, citation.id)
+            assert resolved is not None
+            assert resolved.id == chunk.id
 
 
 def test_answer_with_retrieval_returns_passage_scores(world: _World) -> None:

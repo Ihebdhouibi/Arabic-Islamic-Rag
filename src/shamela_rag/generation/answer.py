@@ -20,7 +20,8 @@ from shamela_rag.retrieval.expand import ExpandedPassage
 @dataclass(frozen=True)
 class Citation:
     marker: int  # matches the [n] numbering in the prompt/answer
-    chunk_id: int
+    id: str  # stable public id (survives re-ingest)
+    chunk_id: int  # Postgres serial; kept during transition
     book_title: str
     author: str
     page: str
@@ -70,9 +71,17 @@ def _to_prompt_passage(passage: ExpandedPassage) -> PromptPassage:
     )
 
 
+def _stable_id(passage: ExpandedPassage) -> str:
+    value = passage.payload.get("stable_id")
+    if isinstance(value, str) and value.strip():
+        return value
+    raise ValueError("passage payload missing stable_id")
+
+
 def _to_citation(marker: int, passage: ExpandedPassage) -> Citation:
     return Citation(
         marker=marker,
+        id=_stable_id(passage),
         chunk_id=passage.hit_chunk_id,
         book_title=_payload_str(passage, "book_title"),
         author=_payload_str(passage, "author"),

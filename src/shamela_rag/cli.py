@@ -681,6 +681,7 @@ def run_ask(args: argparse.Namespace) -> int:
                     "citations": [
                         {
                             "marker": c.marker,
+                            "id": c.id,
                             "chunk_id": c.chunk_id,
                             "book_title": c.book_title,
                             "author": c.author,
