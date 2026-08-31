@@ -114,6 +114,9 @@ def test_retrieve_returns_cite_ready_passages(world: _World) -> None:
     assert top.text.strip() != ""
     assert top.payload["book_title"] == book_title
     assert top.payload["book_id"] == _BOOK_ID
+    sources = top.payload["retrieval_sources"]
+    assert isinstance(sources, list) and sources
+    assert "rerank" not in sources  # lexical fallback does not tag rerank
 
 
 def test_retrieve_book_filter_scopes_results(world: _World) -> None:

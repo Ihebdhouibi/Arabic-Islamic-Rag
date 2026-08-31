@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
@@ -23,8 +24,17 @@ from shamela_rag.retrieval.authority import (
 from shamela_rag.retrieval.dense import DenseRetriever
 from shamela_rag.retrieval.expand import ContextExpander, ExpandedPassage, ExpansionConfig
 from shamela_rag.retrieval.filters import RetrievalFilter
-from shamela_rag.retrieval.fusion import reciprocal_rank_fusion
-from shamela_rag.retrieval.rerank import RerankCandidate, Reranker
+from shamela_rag.retrieval.fusion import (
+    ARM_BM25,
+    ARM_DENSE,
+    ARM_RERANK,
+    ARM_ROOT,
+    RETRIEVAL_SOURCES_KEY,
+    FusedChunk,
+    normalize_retrieval_sources,
+    reciprocal_rank_fusion,
+)
+from shamela_rag.retrieval.rerank import RerankCandidate, RerankedChunk, Reranker
 from shamela_rag.retrieval.results import RetrievedChunk
 from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import Translator, prepare_retrieval_query
@@ -82,15 +92,27 @@ class RetrievalService:
 
         dense = self._dense.search(query, limit=cfg.candidate_limit, filters=filters)
         sparse = self._sparse.search(query, limit=cfg.candidate_limit, filters=filters)
-        lists: list[Sequence[RetrievedChunk]] = [dense, sparse]
+        arms: list[tuple[str, Sequence[RetrievedChunk]]] = [
+            (ARM_DENSE, dense),
+            (ARM_BM25, sparse),
+        ]
         if cfg.use_root_expansion and self._root is not None:
-            lists.append(self._root.search(query, limit=cfg.candidate_limit, filters=filters))
-        fused = reciprocal_rank_fusion(lists, k=cfg.rrf_k, limit=cfg.rerank_input_limit)
-        candidates = self._hydrate([hit.chunk_id for hit in fused])
+            arms.append(
+                (ARM_ROOT, self._root.search(query, limit=cfg.candidate_limit, filters=filters))
+            )
+        fused = reciprocal_rank_fusion(
+            [results for _name, results in arms],
+            k=cfg.rrf_k,
+            limit=cfg.rerank_input_limit,
+            arm_names=[name for name, _results in arms],
+        )
+        candidates = self._hydrate(fused)
         if not candidates:
             return []
 
         reranked = self._reranker.rerank(query, candidates, top_k=cfg.rerank_top_k)
+        if self._reranker.contributes_rerank_source:
+            reranked = [_append_rerank_source(chunk) for chunk in reranked]
         boosted = apply_authority_boost(
             reranked,
             printed_boost=cfg.printed_boost,
@@ -105,10 +127,14 @@ class RetrievalService:
             return prepare_retrieval_query(question, self._translator).retrieval_text
         return question.strip()
 
-    def _hydrate(self, chunk_ids: Sequence[int]) -> list[RerankCandidate]:
+    def _hydrate(self, fused: Sequence[FusedChunk]) -> list[RerankCandidate]:
         """Fetch source text + citation metadata from Postgres, preserving fusion order."""
-        if not chunk_ids:
+        if not fused:
             return []
+        chunk_ids = [hit.chunk_id for hit in fused]
+        sources_by_id = {
+            hit.chunk_id: list(hit.payload.get(RETRIEVAL_SOURCES_KEY) or []) for hit in fused
+        }
         with self._session_factory() as session:
             rows = session.execute(
                 select(Chunk, Book)
@@ -137,7 +163,22 @@ class RetrievalService:
                         "author": book.author_name_ar,
                         "author_death_hijri": book.author_death_hijri,
                         "book_type_label": book.book_type_label,
+                        RETRIEVAL_SOURCES_KEY: sources_by_id.get(chunk_id, []),
                     },
                 )
             )
         return candidates
+
+
+def _append_rerank_source(chunk: RerankedChunk) -> RerankedChunk:
+    existing = chunk.payload.get(RETRIEVAL_SOURCES_KEY) or []
+    if not isinstance(existing, list):
+        existing = list(existing)
+    sources = normalize_retrieval_sources([*existing, ARM_RERANK])
+    payload: dict[str, Any] = {**chunk.payload, RETRIEVAL_SOURCES_KEY: sources}
+    return RerankedChunk(
+        chunk_id=chunk.chunk_id,
+        score=chunk.score,
+        text=chunk.text,
+        payload=payload,
+    )

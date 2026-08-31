@@ -35,6 +35,8 @@ class RerankedChunk:
 
 
 class Reranker(ABC):
+    contributes_rerank_source: bool = False  # True only for real cross-encoder
+
     @abstractmethod
     def score(self, query: str, passages: Sequence[str]) -> list[float]:
         """Return a relevance score for each ``(query, passage)`` pair, in input order."""
@@ -91,6 +93,8 @@ def _load_cross_encoder(model_id: str, *, device: str | None, max_length: int) -
 
 
 class CrossEncoderReranker(Reranker):
+    contributes_rerank_source = True
+
     def __init__(
         self,
         *,

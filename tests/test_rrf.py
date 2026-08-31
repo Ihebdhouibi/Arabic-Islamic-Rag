@@ -59,6 +59,14 @@ def test_rrf_preserves_first_seen_payload() -> None:
     assert fused[0].payload == {"book_id": 10}
 
 
+def test_rrf_arm_names_do_not_overwrite_existing_payload_keys() -> None:
+    dense = [RetrievedChunk(chunk_id=1, score=0.0, payload={"book_id": 10})]
+    sparse = [RetrievedChunk(chunk_id=1, score=0.0, payload={"book_id": 99})]
+    fused = reciprocal_rank_fusion([dense, sparse], arm_names=["dense", "bm25"])
+    assert fused[0].payload["book_id"] == 10
+    assert fused[0].payload["retrieval_sources"] == ["dense", "bm25"]
+
+
 def test_rrf_rejects_non_positive_k() -> None:
     with pytest.raises(ValueError, match="k must be positive"):
         reciprocal_rank_fusion([[_chunk(1)]], k=0)
