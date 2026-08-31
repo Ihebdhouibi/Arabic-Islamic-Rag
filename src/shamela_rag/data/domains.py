@@ -1,6 +1,6 @@
-"""Map corpus ``category_id`` to Islamic AI Core ``suggested_domain`` (nullable).
+"""Map corpus ``category_id`` to a ``suggested_domain`` for downstream consumers (nullable).
 
-Categories 3–5 stay ``None`` until Core confirms a ``quran`` mapping.
+Categories 3-5 stay ``None`` until a ``quran`` mapping is confirmed.
 """
 
 from __future__ import annotations
