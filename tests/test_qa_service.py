@@ -26,8 +26,8 @@ from shamela_rag.retrieval.expand import ContextExpander
 from shamela_rag.retrieval.rerank import LexicalOverlapReranker
 from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
 from shamela_rag.retrieval.sparse import SparseRetriever
-from shamela_rag.retrieval.translate import InMemoryTranslator
 from shamela_rag.retrieval.stable_ids import resolve_stable_chunk_id
+from shamela_rag.retrieval.translate import InMemoryTranslator
 from shamela_rag.vectorstore.qdrant_store import QdrantStore
 
 _FIXTURE_DIR = Path(__file__).parent / "fixtures" / "book_1021"
