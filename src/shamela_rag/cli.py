@@ -288,13 +288,12 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
 
 
 def _build_embedder(model: str | None) -> EmbeddingProvider:
-    if (model or "bge-m3") == "qwen3":
-        from shamela_rag.embeddings.qwen import Qwen3EmbeddingProvider
+    """Delegate to ``factory.build_embedder`` so ingestion respects ``SHAMELA_EMBEDDING_BACKEND``
+    the same way the query-time service does — otherwise ``ingest``/``build-bm25`` would silently
+    load local weights even with the OpenRouter backend configured."""
+    from shamela_rag.factory import build_embedder
 
-        return Qwen3EmbeddingProvider()
-    from shamela_rag.embeddings.bge_m3 import BgeM3EmbeddingProvider
-
-    return BgeM3EmbeddingProvider()
+    return build_embedder(model)
 
 
 def _build_service(model: str | None) -> IngestionService:

@@ -153,6 +153,23 @@ models spend part of `max_tokens` on an internal `reasoning` field before the re
 mid-thought. Together's embeddings catalog is English-only (`bge-base-en-v1.5`) — this backend is
 for generation only, it does not help with embedding/ingestion.
 
+### 7.4 OpenRouter dense embeddings (no local GPU/RAM needed)
+
+OpenRouter hosts `qwen/qwen3-embedding-8b` and `baai/bge-m3` as pay-per-token embeddings
+(~$0.01/M tokens each) — offloads embedding compute for both **ingestion and querying**, unlike
+the Together backend above.
+
+```bash
+$env:SHAMELA_EMBEDDING_BACKEND = "openrouter"
+$env:SHAMELA_EMBEDDING_API_KEY = "sk-or-v1-..."
+$env:SHAMELA_QDRANT_DENSE_DIM = "4096"   # qwen3; use 1024 (or omit) for bge-m3
+```
+
+Then `ingest --model qwen3`, `build-bm25`, `ask`, and `/ask` all route dense embedding calls
+through OpenRouter instead of loading local weights. Use a **fresh Qdrant collection** when
+switching dense dims — an existing 1024-dim (bge-m3) collection can't hold 4096-dim (qwen3)
+vectors.
+
 ## 8. Evaluate (optional)
 
 With a golden set (`docs/technical_docs/general_qa_golden_staging.jsonl` format), score retrieval:
