@@ -566,9 +566,7 @@ def aggregate_category_audit(
 def recommend_category(row: CategoryAuditRow) -> str:
     total = row.total_boundaries
     if total == 0:
-        return (
-            "No boundaries detected in the sample; verify TOC/page markup before scale ingest."
-        )
+        return "No boundaries detected in the sample; verify TOC/page markup before scale ingest."
     weak = (
         row.boundary_source_counts.get(BoundarySource.PARAGRAPH_FALLBACK.value, 0)
         + row.boundary_source_counts.get(BoundarySource.AMBIGUOUS_TOC_PAGE.value, 0)
@@ -609,9 +607,7 @@ def validate_category_audit(
         progress=progress,
     )
     _log_progress(progress, "aggregating per-category boundary statistics...")
-    audit_report = aggregate_category_audit(
-        corpus_report, books_per_category=books_per_category
-    )
+    audit_report = aggregate_category_audit(corpus_report, books_per_category=books_per_category)
     _log_progress(
         progress,
         f"audit complete: {audit_report.category_count} categor"
@@ -713,9 +709,7 @@ def _format_book(report: BookReport) -> str:
         counts = ", ".join(f"{k}={v}" for k, v in sorted(report.confidence_counts.items()))
         lines.append(f"  confidence: {counts}")
     if report.boundary_source_counts:
-        sources = ", ".join(
-            f"{k}={v}" for k, v in sorted(report.boundary_source_counts.items())
-        )
+        sources = ", ".join(f"{k}={v}" for k, v in sorted(report.boundary_source_counts.items()))
         lines.append(f"  boundary_sources: {sources}")
     if report.ambiguous_boundaries:
         lines.append(f"  ambiguous_toc_page: {report.ambiguous_boundaries}")
