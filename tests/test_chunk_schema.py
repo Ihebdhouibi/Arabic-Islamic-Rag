@@ -21,6 +21,8 @@ _CHUNK_COLUMNS = {
     "part",
     "start_page_id",
     "end_page_id",
+    "start_page_num",
+    "end_page_num",
     "start_offset",
     "end_offset",
     "token_count",
