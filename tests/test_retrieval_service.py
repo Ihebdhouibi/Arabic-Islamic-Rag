@@ -132,3 +132,15 @@ def test_retrieve_book_filter_scopes_results(world: _World) -> None:
 def test_retrieve_empty_question_is_rejected(world: _World) -> None:
     with pytest.raises(ValueError, match="question"):
         world.service.retrieve("   ")
+
+
+def test_english_query_matches_arabic_with_mapped_translator(world: _World) -> None:
+    target_id, arabic_query, _ = _target(world.engine)
+    english = "What does this passage say?"
+    world.service._translator = InMemoryTranslator({english: arabic_query})
+
+    english_hits = world.service.retrieve(english, k=5)
+    arabic_hits = world.service.retrieve(arabic_query, k=5)
+
+    assert target_id in {passage.hit_chunk_id for passage in english_hits}
+    assert english_hits[0].hit_chunk_id == arabic_hits[0].hit_chunk_id

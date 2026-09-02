@@ -117,6 +117,36 @@ def build_generation_provider() -> GenerationProvider:
     assert_never(backend)
 
 
+def build_translator() -> Translator:
+    """Offline in-memory stub by default; hosted OpenAI-compatible API when configured."""
+    settings = get_settings()
+    if settings.translator_backend == "memory":
+        from shamela_rag.retrieval.translate import InMemoryTranslator
+
+        return InMemoryTranslator()
+    if settings.translator_backend == "openai_compatible":
+        if not settings.llm_api_key.strip():
+            raise ValueError(
+                "SHAMELA_LLM_API_KEY is required when SHAMELA_TRANSLATOR_BACKEND=openai_compatible"
+            )
+        model = settings.translator_api_model.strip() or settings.llm_api_model.strip()
+        if not model:
+            raise ValueError(
+                "SHAMELA_TRANSLATOR_API_MODEL or SHAMELA_LLM_API_MODEL is required when "
+                "SHAMELA_TRANSLATOR_BACKEND=openai_compatible"
+            )
+        from shamela_rag.retrieval.llm_translate import OpenAICompatibleTranslator
+
+        return OpenAICompatibleTranslator(
+            model,
+            api_key=settings.llm_api_key,
+            base_url=settings.llm_api_base_url,
+            max_tokens=settings.translator_max_tokens,
+            timeout_seconds=settings.translator_timeout_seconds,
+        )
+    assert_never(settings.translator_backend)
+
+
 def build_general_qa_service(
     *,
     model: str = "bge-m3",
@@ -133,7 +163,6 @@ def build_general_qa_service(
     from shamela_rag.retrieval.expand import ContextExpander
     from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
     from shamela_rag.retrieval.sparse import SparseRetriever
-    from shamela_rag.retrieval.translate import InMemoryTranslator
     from shamela_rag.vectorstore.qdrant_store import ROOT_VECTOR_NAME, QdrantStore
 
     settings = get_settings()
@@ -152,7 +181,7 @@ def build_general_qa_service(
         )
 
     retrieval = RetrievalService(
-        translator=translator or InMemoryTranslator(),
+        translator=translator or build_translator(),
         dense_retriever=DenseRetriever(embedder=dense, store=store),
         sparse_retriever=SparseRetriever(encoder=encoder, store=store),
         reranker=cross,
