@@ -25,6 +25,7 @@ class Book(Base):
     author_name_ar: Mapped[str | None] = mapped_column(Text)
     author_death_hijri: Mapped[int | None] = mapped_column()
     category_id: Mapped[int | None] = mapped_column()
+    category_name_ar: Mapped[str | None] = mapped_column(Text)
     book_type_label: Mapped[str | None] = mapped_column(String(64))
 
 
@@ -62,6 +63,8 @@ class Chunk(Base):
     part: Mapped[str | None] = mapped_column(String(16))
     start_page_id: Mapped[int | None] = mapped_column()
     end_page_id: Mapped[int | None] = mapped_column()
+    start_page_num: Mapped[int | None] = mapped_column()  # printed page number
+    end_page_num: Mapped[int | None] = mapped_column()
     start_offset: Mapped[int | None] = mapped_column()  # char offset into the book source stream
     end_offset: Mapped[int | None] = mapped_column()
     token_count: Mapped[int | None] = mapped_column()

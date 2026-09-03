@@ -1,6 +1,7 @@
 """Command-line entry point for the shamela-rag package.
 
-Exposes ``ingest`` (M3-08), ``validate-structure`` (M6-06), ``build-bm25``, ``ask``,
+Exposes ``ingest`` (M3-08), ``validate-structure`` (M6-06), ``audit-structure`` (#149),
+``build-bm25``, ``ask``,
 ``compare-qwen-quant`` (issue #135), and ``compare-dense-models`` (M6-03). Heavy embedding
 backends are imported lazily so ``--help`` and argument parsing stay fast and offline.
 """
@@ -90,6 +91,43 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="Max books to validate under --corpus-root (default: 20; use 0 for no cap).",
+    )
+
+    audit = subcommands.add_parser(
+        "audit-structure",
+        help="Per-category structural boundary audit over a stratified corpus sample.",
+    )
+    audit.add_argument(
+        "--corpus-root",
+        type=Path,
+        default=None,
+        help="Corpus root to sample (default: SHAMELA_CORPUS_ROOT).",
+    )
+    audit.add_argument(
+        "--books-per-category",
+        type=int,
+        default=1,
+        help="Books to sample per category (default: 1).",
+    )
+    audit.add_argument(
+        "--book",
+        type=int,
+        metavar="ID",
+        default=None,
+        help="Restrict the stratified sample to one book id.",
+    )
+    audit.add_argument(
+        "--category",
+        type=int,
+        metavar="ID",
+        default=None,
+        help="Restrict the stratified sample to one category id.",
+    )
+    audit.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the markdown report to this path (default: stdout only).",
     )
 
     build_bm25 = subcommands.add_parser(
@@ -457,6 +495,44 @@ def run_validate_structure(args: argparse.Namespace) -> int:
     return 0 if corpus_report.ok else 1
 
 
+def run_audit_structure(args: argparse.Namespace) -> int:
+    from shamela_rag.eval.structural import (
+        format_category_audit_report,
+        format_report,
+        validate_category_audit,
+    )
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    def status(message: str) -> None:
+        print(f"[audit-structure] {message}", flush=True)
+        logger.info("%s", message)
+
+    corpus_root = args.corpus_root or get_settings().corpus_root
+    corpus_report, audit_report = validate_category_audit(
+        corpus_root,
+        books_per_category=args.books_per_category,
+        book_id=args.book,
+        category_id=args.category,
+        progress=status,
+    )
+    if not corpus_report.books:
+        logger.error("no matching books found under %s", corpus_root)
+        return 1
+
+    markdown = format_category_audit_report(audit_report)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(markdown, encoding="utf-8")
+        status(f"wrote report to {args.output}")
+    print(markdown, end="")
+    if not corpus_report.ok:
+        print(format_report(corpus_report), end="")
+        return 1
+    return 0
+
+
 def run_compare_qwen_quant(args: argparse.Namespace) -> int:
     import os
 
@@ -715,6 +791,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_ingest(args, _build_service(args.model))
     if args.command == "validate-structure":
         return run_validate_structure(args)
+    if args.command == "audit-structure":
+        return run_audit_structure(args)
     if args.command == "build-bm25":
         return run_build_bm25(args)
     if args.command == "ask":

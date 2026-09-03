@@ -194,6 +194,7 @@ class IngestionService:
         row.category_id = (
             book_meta.category_id if book_meta.category_id is not None else location.category_id
         )
+        row.category_name_ar = book_meta.category_name_ar
         row.book_type_label = book_meta.book_type_label
 
     @staticmethod
@@ -255,6 +256,8 @@ class IngestionService:
                 context_header=chunk.context_header,
                 start_page_id=chunk.page_id,
                 end_page_id=chunk.page_id,
+                start_page_num=chunk.page_num,
+                end_page_num=chunk.page_num,
                 start_offset=chunk.start_offset,
                 end_offset=chunk.end_offset,
                 token_count=chunk.token_count,
