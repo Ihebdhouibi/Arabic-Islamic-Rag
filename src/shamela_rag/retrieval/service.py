@@ -15,7 +15,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from shamela_rag.db.models import Book, Chunk
+from shamela_rag.db.models import Book, Chunk, Section
 from shamela_rag.retrieval.authority import (
     DEFAULT_PRINTED_BOOST,
     DEFAULT_TRANSCRIPT_PENALTY,
@@ -143,12 +143,24 @@ class RetrievalService:
             ).all()
         by_id = {chunk.id: (chunk, book) for chunk, book in rows}
 
+        section_ids = {
+            chunk.section_id for chunk, _book in by_id.values() if chunk.section_id is not None
+        }
+        sections_by_id: dict[int, Section] = {}
+        if section_ids:
+            with self._session_factory() as session:
+                for section in session.execute(
+                    select(Section).where(Section.id.in_(section_ids))
+                ).scalars():
+                    sections_by_id[section.id] = section
+
         candidates: list[RerankCandidate] = []
         for chunk_id in chunk_ids:
             pair = by_id.get(chunk_id)
             if pair is None:
                 continue
             chunk, book = pair
+            section = sections_by_id.get(chunk.section_id) if chunk.section_id else None
             candidates.append(
                 RerankCandidate(
                     chunk_id=chunk.id,
@@ -164,6 +176,13 @@ class RetrievalService:
                         "author": book.author_name_ar,
                         "author_death_hijri": book.author_death_hijri,
                         "book_type_label": book.book_type_label,
+                        "part": chunk.part,
+                        "start_page_id": chunk.start_page_id,
+                        "end_page_id": chunk.end_page_id,
+                        "start_page_num": chunk.start_page_num,
+                        "end_page_num": chunk.end_page_num,
+                        "section_trail": section.title_trail if section else None,
+                        "section_confidence": section.confidence if section else None,
                         RETRIEVAL_SOURCES_KEY: sources_by_id.get(chunk_id, []),
                     },
                 )

@@ -51,7 +51,15 @@ def _client(qa: object | None = None) -> TestClient:
 def test_health_ok() -> None:
     response = _client().get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "unavailable"
+
+
+def test_health_ok_with_service() -> None:
+    response = _client(_FakeQA(_ANSWER)).get("/health")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
 
 
 def test_ask_returns_cited_answer() -> None:
