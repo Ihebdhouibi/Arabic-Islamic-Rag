@@ -160,7 +160,9 @@ class RetrievalService:
             if pair is None:
                 continue
             chunk, book = pair
-            section = sections_by_id.get(chunk.section_id) if chunk.section_id else None
+            section: Section | None = (
+                sections_by_id.get(chunk.section_id) if chunk.section_id is not None else None
+            )
             candidates.append(
                 RerankCandidate(
                     chunk_id=chunk.id,
