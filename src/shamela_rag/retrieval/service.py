@@ -160,9 +160,7 @@ class RetrievalService:
             if pair is None:
                 continue
             chunk, book = pair
-            section: Section | None = (
-                sections_by_id.get(chunk.section_id) if chunk.section_id is not None else None
-            )
+            sec = sections_by_id.get(chunk.section_id) if chunk.section_id is not None else None
             candidates.append(
                 RerankCandidate(
                     chunk_id=chunk.id,
@@ -183,8 +181,8 @@ class RetrievalService:
                         "end_page_id": chunk.end_page_id,
                         "start_page_num": chunk.start_page_num,
                         "end_page_num": chunk.end_page_num,
-                        "section_trail": section.title_trail if section else None,
-                        "section_confidence": section.confidence if section else None,
+                        "section_trail": sec.title_trail if sec else None,
+                        "section_confidence": sec.confidence if sec else None,
                         RETRIEVAL_SOURCES_KEY: sources_by_id.get(chunk_id, []),
                     },
                 )
