@@ -393,6 +393,8 @@ def _insert_chunks(
                 context_header=chunk.context_header,
                 start_page_id=chunk.page_id,
                 end_page_id=chunk.page_id,
+                start_page_num=chunk.page_num,
+                end_page_num=chunk.page_num,
                 start_offset=chunk.start_offset,
                 end_offset=chunk.end_offset,
                 token_count=chunk.token_count,

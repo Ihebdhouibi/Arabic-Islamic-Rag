@@ -38,6 +38,7 @@ class BookChunk:
     boundary_source: str | None
     confidence: str | None
     page_id: int
+    page_num: int | None  # printed page; distinct from internal page_id
     start_offset: int  # offset within the page body/footnotes
     end_offset: int
     token_count: int
@@ -103,6 +104,7 @@ def _make_chunk(
         boundary_source=boundary.source.value if boundary is not None else None,
         confidence=boundary.confidence.value if boundary is not None else None,
         page_id=page.page_id,
+        page_num=page.page_num,
         start_offset=start,
         end_offset=end,
         token_count=count_tokens(source_text),
