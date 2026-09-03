@@ -122,3 +122,10 @@ def confidence_counts(boundaries: Iterable[Boundary]) -> dict[Confidence, int]:
     for boundary in boundaries:
         counts[boundary.confidence] += 1
     return counts
+
+
+def boundary_source_counts(boundaries: Iterable[Boundary]) -> dict[BoundarySource, int]:
+    counts = dict.fromkeys(BoundarySource, 0)
+    for boundary in boundaries:
+        counts[boundary.source] += 1
+    return counts
