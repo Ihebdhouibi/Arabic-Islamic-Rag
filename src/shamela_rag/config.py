@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_api_model: str = ""
 
+    # Query translation for retrieval (default: offline in-memory stub; CI stays offline).
+    translator_backend: Literal["memory", "openai_compatible"] = "memory"
+    translator_api_model: str = ""
+    translator_max_tokens: int = Field(default=256, gt=0)
+    translator_timeout_seconds: float = Field(default=30.0, gt=0)
+
     # Corpus location (the extracted Shamela4 dataset root)
     corpus_root: Path = Path(".")
 

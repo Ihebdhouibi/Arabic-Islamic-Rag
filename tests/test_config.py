@@ -26,6 +26,8 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.embedding_backend == "local"
     assert s.embedding_api_key == ""
     assert "openrouter" in s.embedding_api_base_url
+    assert s.translator_backend == "memory"
+    assert s.translator_api_model == ""
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
