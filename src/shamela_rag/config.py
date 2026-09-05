@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     translator_max_tokens: int = Field(default=256, gt=0)
     translator_timeout_seconds: float = Field(default=30.0, gt=0)
 
+    # Bearer token guarding POST /retrieve. Empty disables the check, which is what keeps
+    # local runs and offline CI working; set it in any deployed environment.
+    retrieve_api_token: str = ""
+
     # Corpus location (the extracted Shamela4 dataset root)
     corpus_root: Path = Path(".")
 
