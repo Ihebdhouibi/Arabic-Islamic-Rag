@@ -4,18 +4,24 @@ Wiring: translate (EN->AR) -> dense + sparse search -> RRF fusion -> hydrate can
 citation metadata from Postgres -> cross-encoder rerank -> authority boost -> parent/neighbor
 expansion. Returns cite-ready ``ExpandedPassage`` objects. Every stage is configurable via
 ``RetrievalConfig`` (with per-call ``k``/``filters`` overrides).
+
+Callers that must answer within a fixed budget use ``retrieve_with_outcome`` and pass a
+``Deadline``. The deadline is checked at stage boundaries: once the budget is gone the pipeline
+stops starting new expensive work (sparse arm, reranking) and returns whatever the earlier stages
+already produced, reporting what it skipped. It never returns nothing just because time ran out.
 """
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+import time
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from shamela_rag.db.models import Book, Chunk
+from shamela_rag.db.models import Book, Chunk, Section
 from shamela_rag.retrieval.authority import (
     DEFAULT_PRINTED_BOOST,
     DEFAULT_TRANSCRIPT_PENALTY,
@@ -38,6 +44,48 @@ from shamela_rag.retrieval.rerank import RerankCandidate, RerankedChunk, Reranke
 from shamela_rag.retrieval.results import RetrievedChunk
 from shamela_rag.retrieval.sparse import SparseRetriever
 from shamela_rag.retrieval.translate import Translator, prepare_retrieval_query
+
+DEGRADED_SPARSE_SKIPPED = "sparse_skipped"
+DEGRADED_RERANK_SKIPPED = "rerank_skipped"
+DEGRADED_DEADLINE_HIT = "deadline_hit"
+
+
+class Deadline:
+    """A monotonic time budget, checked between retrieval stages.
+
+    ``budget_ms=None`` means unlimited, so the default (no deadline) path is unchanged.
+    """
+
+    def __init__(
+        self,
+        budget_ms: int | None,
+        *,
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._budget_ms = budget_ms
+        self._clock = clock
+        self._start = clock()
+
+    @property
+    def elapsed_ms(self) -> int:
+        return int((self._clock() - self._start) * 1000)
+
+    @property
+    def expired(self) -> bool:
+        if self._budget_ms is None:
+            return False
+        return self.elapsed_ms >= self._budget_ms
+
+
+@dataclass(frozen=True)
+class RetrievalOutcome:
+    """Passages plus what the pipeline actually did to produce them."""
+
+    passages: list[ExpandedPassage]
+    candidates_considered: int = 0
+    reranked: bool = False
+    degraded: tuple[str, ...] = ()
+    elapsed_ms: int = 0
 
 
 @dataclass(frozen=True)
@@ -85,21 +133,41 @@ class RetrievalService:
         filters: RetrievalFilter | None = None,
         config: RetrievalConfig | None = None,
     ) -> list[ExpandedPassage]:
+        return self.retrieve_with_outcome(question, k=k, filters=filters, config=config).passages
+
+    def retrieve_with_outcome(
+        self,
+        question: str,
+        *,
+        k: int | None = None,
+        filters: RetrievalFilter | None = None,
+        config: RetrievalConfig | None = None,
+        deadline: Deadline | None = None,
+    ) -> RetrievalOutcome:
+        """``retrieve``, reporting what the pipeline did and honouring ``deadline`` if given."""
         cfg = config or self._config
         if not question.strip():
             raise ValueError("question must be non-empty")
+        budget = deadline if deadline is not None else Deadline(None)
+        degraded: list[str] = []
+
         query = self._prepare_query(question, cfg)
 
         dense = self._dense.search(query, limit=cfg.candidate_limit, filters=filters)
-        sparse = self._sparse.search(query, limit=cfg.candidate_limit, filters=filters)
-        arms: list[tuple[str, Sequence[RetrievedChunk]]] = [
-            (ARM_DENSE, dense),
-            (ARM_BM25, sparse),
-        ]
-        if cfg.use_root_expansion and self._root is not None:
+        arms: list[tuple[str, Sequence[RetrievedChunk]]] = [(ARM_DENSE, dense)]
+
+        # Past the budget: keep the dense arm we already paid for, skip the rest.
+        if budget.expired:
+            degraded.append(DEGRADED_SPARSE_SKIPPED)
+        else:
             arms.append(
-                (ARM_ROOT, self._root.search(query, limit=cfg.candidate_limit, filters=filters))
+                (ARM_BM25, self._sparse.search(query, limit=cfg.candidate_limit, filters=filters))
             )
+            if cfg.use_root_expansion and self._root is not None:
+                arms.append(
+                    (ARM_ROOT, self._root.search(query, limit=cfg.candidate_limit, filters=filters))
+                )
+
         fused = reciprocal_rank_fusion(
             [results for _name, results in arms],
             k=cfg.rrf_k,
@@ -108,19 +176,47 @@ class RetrievalService:
         )
         candidates = self._hydrate(fused)
         if not candidates:
-            return []
+            return self._outcome([], 0, False, degraded, budget)
 
-        reranked = self._reranker.rerank(query, candidates, top_k=cfg.rerank_top_k)
-        if self._reranker.contributes_rerank_source:
-            reranked = [_append_rerank_source(chunk) for chunk in reranked]
+        final_k = k if k is not None else cfg.final_k
+        if budget.expired:
+            # Reranking is the most expensive stage; fall back to fusion order instead.
+            degraded.append(DEGRADED_RERANK_SKIPPED)
+            scored = _as_reranked(candidates[: cfg.rerank_top_k])
+            reranked_ran = False
+        else:
+            scored = self._reranker.rerank(query, candidates, top_k=cfg.rerank_top_k)
+            if self._reranker.contributes_rerank_source:
+                scored = [_append_rerank_source(chunk) for chunk in scored]
+            reranked_ran = True
+
         boosted = apply_authority_boost(
-            reranked,
+            scored,
             printed_boost=cfg.printed_boost,
             transcript_penalty=cfg.transcript_penalty,
             order_by_death_hijri=cfg.order_by_death_hijri,
         )
-        final_k = k if k is not None else cfg.final_k
-        return self._expander.expand(boosted[:final_k], config=cfg.expansion)
+        passages = self._expander.expand(boosted[:final_k], config=cfg.expansion)
+        return self._outcome(passages, len(candidates), reranked_ran, degraded, budget)
+
+    @staticmethod
+    def _outcome(
+        passages: list[ExpandedPassage],
+        candidates_considered: int,
+        reranked: bool,
+        degraded: list[str],
+        budget: Deadline,
+    ) -> RetrievalOutcome:
+        reasons = list(degraded)
+        if budget.expired and DEGRADED_DEADLINE_HIT not in reasons:
+            reasons.append(DEGRADED_DEADLINE_HIT)
+        return RetrievalOutcome(
+            passages=passages,
+            candidates_considered=candidates_considered,
+            reranked=reranked,
+            degraded=tuple(reasons),
+            elapsed_ms=budget.elapsed_ms,
+        )
 
     def _prepare_query(self, question: str, cfg: RetrievalConfig) -> str:
         if cfg.translate:
@@ -143,12 +239,24 @@ class RetrievalService:
             ).all()
         by_id = {chunk.id: (chunk, book) for chunk, book in rows}
 
+        section_ids = {
+            chunk.section_id for chunk, _book in by_id.values() if chunk.section_id is not None
+        }
+        sections_by_id: dict[int, Section] = {}
+        if section_ids:
+            with self._session_factory() as session:
+                for section in session.execute(
+                    select(Section).where(Section.id.in_(section_ids))
+                ).scalars():
+                    sections_by_id[section.id] = section
+
         candidates: list[RerankCandidate] = []
         for chunk_id in chunk_ids:
             pair = by_id.get(chunk_id)
             if pair is None:
                 continue
             chunk, book = pair
+            sec = sections_by_id.get(chunk.section_id) if chunk.section_id is not None else None
             candidates.append(
                 RerankCandidate(
                     chunk_id=chunk.id,
@@ -164,11 +272,36 @@ class RetrievalService:
                         "author": book.author_name_ar,
                         "author_death_hijri": book.author_death_hijri,
                         "book_type_label": book.book_type_label,
+                        "part": chunk.part,
+                        "start_page_id": chunk.start_page_id,
+                        "end_page_id": chunk.end_page_id,
+                        "start_page_num": chunk.start_page_num,
+                        "end_page_num": chunk.end_page_num,
+                        "section_trail": sec.title_trail if sec else None,
+                        "section_confidence": sec.confidence if sec else None,
                         RETRIEVAL_SOURCES_KEY: sources_by_id.get(chunk_id, []),
                     },
                 )
             )
         return candidates
+
+
+def _as_reranked(candidates: Sequence[RerankCandidate]) -> list[RerankedChunk]:
+    """Carry fusion order into the rerank stage's shape when reranking is skipped.
+
+    Scores descend with position so downstream ordering stays stable; they are not comparable
+    with real cross-encoder scores, which is why the caller reports ``reranked=False``.
+    """
+    total = len(candidates)
+    return [
+        RerankedChunk(
+            chunk_id=candidate.chunk_id,
+            score=float(total - index),
+            text=candidate.text,
+            payload=candidate.payload,
+        )
+        for index, candidate in enumerate(candidates)
+    ]
 
 
 def _append_rerank_source(chunk: RerankedChunk) -> RerankedChunk:

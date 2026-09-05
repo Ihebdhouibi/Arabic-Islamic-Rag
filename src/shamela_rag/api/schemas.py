@@ -1,6 +1,8 @@
-"""Request/response schemas for the general Q&A API (M7-01)."""
+"""Request/response schemas for the general Q&A API (M7-01, M7-retrieve #147)."""
 
 from __future__ import annotations
+
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -59,3 +61,95 @@ class AnswerResponse(BaseModel):
                 for citation in answer.citations
             ],
         )
+
+
+# ---------------------------------------------------------------------------
+# POST /retrieve schemas
+# ---------------------------------------------------------------------------
+
+
+class RetrieveRequest(BaseModel):
+    query: str = Field(min_length=1, description="Question in Arabic or English.")
+    top_k: int = Field(default=10, ge=1, description="Items after rerank.")
+    filters: FilterIn | None = None
+    deadline_ms: int = Field(ge=100, description="Hard budget in milliseconds.")
+
+
+class CategoryOut(BaseModel):
+    category_id: int | None = None
+    category_name: str = ""
+    suggested_domain: str | None = None
+
+
+class CitationBlock(BaseModel):
+    book_id: int
+    book_title: str = ""
+    author: str = ""
+    author_death_hijri: int | None = None
+    book_type_label: str = ""
+    section_trail: str = ""
+    section_confidence: str = ""
+    volume: str = ""
+    start_page_id: int | None = None
+    end_page_id: int | None = None
+    printed_page: str | None = None
+
+
+class RetrieveItem(BaseModel):
+    id: str
+    text: str
+    text_en: str | None = None
+    score: float
+    rank: int
+    content_role: str
+    category: CategoryOut
+    citation: CitationBlock
+    retrieval_sources: list[str] = Field(default_factory=list)
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class SearchMeta(BaseModel):
+    status: str = "ok"
+    candidates_considered: int = 0
+    reranked: bool = True
+    degraded: list[str] = Field(default_factory=list)
+    elapsed_ms: int = 0
+
+
+class RetrieveResponse(BaseModel):
+    items: list[RetrieveItem]
+    search: SearchMeta
+
+
+class ErrorDetail(BaseModel):
+    code: str
+    message: str
+    retryable: bool = False
+
+
+class ErrorResponse(BaseModel):
+    error: ErrorDetail
+
+
+# ---------------------------------------------------------------------------
+# GET /health schemas
+# ---------------------------------------------------------------------------
+
+
+class ComponentHealth(BaseModel):
+    model: str = ""
+    mode: str = ""
+    ready: bool = False
+
+
+class IndexHealth(BaseModel):
+    collection: str = ""
+    points: int = 0
+    ready: bool = False
+
+
+class HealthResponse(BaseModel):
+    status: str
+    index: IndexHealth | None = None
+    embedder: ComponentHealth | None = None
+    reranker: ComponentHealth | None = None
