@@ -48,18 +48,18 @@ def _client(qa: object | None = None) -> TestClient:
     return TestClient(app)
 
 
-def test_health_ok() -> None:
+def test_health_is_503_without_a_service() -> None:
+    """Up with nothing loaded is not healthy: probes must not route traffic here."""
     response = _client().get("/health")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "unavailable"
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
 
 
-def test_health_ok_with_service() -> None:
+def test_health_is_503_when_retrieval_is_not_wired() -> None:
+    """A QA service with no retrieval stack behind it cannot serve a query either."""
     response = _client(_FakeQA(_ANSWER)).get("/health")
-    assert response.status_code == 200
-    body = response.json()
-    assert body["status"] == "ok"
+    assert response.status_code == 503
+    assert response.json()["status"] == "unavailable"
 
 
 def test_ask_returns_cited_answer() -> None:

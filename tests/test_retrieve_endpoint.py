@@ -10,7 +10,7 @@ from shamela_rag.api.app import create_app
 from shamela_rag.generation.answer import Answer
 from shamela_rag.retrieval.expand import ExpandedChunkPart, ExpandedPassage
 from shamela_rag.retrieval.filters import RetrievalFilter
-from shamela_rag.retrieval.service import RetrievalConfig
+from shamela_rag.retrieval.service import Deadline, RetrievalConfig, RetrievalOutcome
 
 
 class _StubReranker:
@@ -44,6 +44,7 @@ _PASSAGE = ExpandedPassage(
     payload={
         "book_id": 1,
         "category_id": 16,
+        "category_name": "الفقه الشافعي",
         "section_id": 10,
         "content_role": "body",
         "page_id": 42,
@@ -98,12 +99,42 @@ _PASSAGE_UNKNOWN_DEATH = ExpandedPassage(
 
 
 class _FakeRetrievalService:
-    def __init__(self, passages: list[ExpandedPassage]) -> None:
+    def __init__(
+        self,
+        passages: list[ExpandedPassage],
+        *,
+        outcome: RetrievalOutcome | None = None,
+    ) -> None:
         self._passages = passages
+        self._outcome = outcome
         self.last_filters: RetrievalFilter | None = None
         self.last_k: int | None = None
+        self.last_deadline: Deadline | None = None
         self._dense = MagicMock()
         self._dense._store = MagicMock()
+        self._reranker = MagicMock()
+
+    def retrieve_with_outcome(
+        self,
+        question: str,
+        *,
+        k: int | None = None,
+        filters: RetrievalFilter | None = None,
+        config: RetrievalConfig | None = None,
+        deadline: Deadline | None = None,
+    ) -> RetrievalOutcome:
+        if not question.strip():
+            raise ValueError("question must be non-empty")
+        self.last_filters = filters
+        self.last_k = k
+        self.last_deadline = deadline
+        if self._outcome is not None:
+            return self._outcome
+        return RetrievalOutcome(
+            passages=self._passages,
+            candidates_considered=len(self._passages),
+            reranked=True,
+        )
 
     def retrieve(
         self,
@@ -113,11 +144,7 @@ class _FakeRetrievalService:
         filters: RetrievalFilter | None = None,
         config: RetrievalConfig | None = None,
     ) -> list[ExpandedPassage]:
-        if not question.strip():
-            raise ValueError("question must be non-empty")
-        self.last_filters = filters
-        self.last_k = k
-        return self._passages
+        return self.retrieve_with_outcome(question, k=k, filters=filters, config=config).passages
 
 
 class _FakeQA:
@@ -132,9 +159,12 @@ class _FakeQA:
 
 
 def _client(
-    passages: list[ExpandedPassage] | None = None, *, configure: bool = True
+    passages: list[ExpandedPassage] | None = None,
+    *,
+    configure: bool = True,
+    outcome: RetrievalOutcome | None = None,
 ) -> tuple[TestClient, _FakeRetrievalService | None]:
-    fake_retrieval = _FakeRetrievalService(passages or []) if configure else None
+    fake_retrieval = _FakeRetrievalService(passages or [], outcome=outcome) if configure else None
     fake_answer = Answer(text="stub", citations=(), deflected=True)
     fake_qa = _FakeQA(fake_answer, fake_retrieval) if configure else None
 
@@ -245,7 +275,7 @@ def test_retrieve_backend_error_returns_502() -> None:
     def _boom(*a, **kw):
         raise ConnectionError("Qdrant down")
 
-    fake.retrieve = _boom
+    fake.retrieve_with_outcome = _boom
     resp = client.post("/retrieve", json={"query": "سؤال", "deadline_ms": 5000})
     assert resp.status_code == 502
     body = resp.json()
@@ -297,20 +327,59 @@ def test_retrieve_printed_page_range() -> None:
     assert resp.json()["items"][0]["citation"]["printed_page"] == "50-51"
 
 
-def test_health_ok_with_service() -> None:
-    client, _ = _client([])
+def _ready_index(client_mock: MagicMock) -> None:
+    """Make the fake Qdrant client report a live, populated collection."""
+    info = MagicMock()
+    info.points_count = 1234
+    info.status.name = "GREEN"
+    client_mock.get_collection.return_value = info
+
+
+def test_health_ok_when_everything_is_ready() -> None:
+    client, fake = _client([])
+    assert fake is not None
+    _ready_index(fake._dense._store.client)
+
     resp = client.get("/health")
     assert resp.status_code == 200
     body = resp.json()
     assert body["status"] == "ok"
+    assert body["index"]["ready"] is True
+    assert body["index"]["points"] == 1234
+    assert body["embedder"]["ready"] is True
+    assert body["reranker"]["ready"] is True
 
 
-def test_health_unavailable_without_service() -> None:
+def test_health_is_503_when_index_is_not_reachable() -> None:
+    client, fake = _client([])
+    assert fake is not None
+    fake._dense._store.client.get_collection.side_effect = ConnectionError("qdrant down")
+
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    body = resp.json()
+    assert body["status"] == "degraded"
+    assert body["index"]["ready"] is False
+
+
+def test_health_is_503_when_collection_is_empty() -> None:
+    client, fake = _client([])
+    assert fake is not None
+    info = MagicMock()
+    info.points_count = 0
+    info.status.name = "GREEN"
+    fake._dense._store.client.get_collection.return_value = info
+
+    resp = client.get("/health")
+    assert resp.status_code == 503
+    assert resp.json()["index"]["ready"] is False
+
+
+def test_health_unavailable_without_service_is_503() -> None:
     client, _ = _client(configure=False)
     resp = client.get("/health")
-    assert resp.status_code == 200
-    body = resp.json()
-    assert body["status"] == "unavailable"
+    assert resp.status_code == 503
+    assert resp.json()["status"] == "unavailable"
 
 
 def test_retrieve_text_is_hit_source_not_expanded() -> None:
@@ -344,3 +413,75 @@ def test_retrieve_text_is_hit_source_not_expanded() -> None:
     client, _ = _client([multi_part])
     resp = client.post("/retrieve", json={"query": "q", "deadline_ms": 5000})
     assert resp.json()["items"][0]["text"] == "hit text"
+
+
+def test_retrieve_reports_partial_when_stages_were_skipped() -> None:
+    """The endpoint must surface what the pipeline skipped, not claim a clean run."""
+    degraded_outcome = RetrievalOutcome(
+        passages=[_PASSAGE],
+        candidates_considered=37,
+        reranked=False,
+        degraded=("sparse_skipped", "rerank_skipped", "deadline_hit"),
+        elapsed_ms=8123,
+    )
+    client, _ = _client([_PASSAGE], outcome=degraded_outcome)
+    resp = client.post("/retrieve", json={"query": "سؤال", "deadline_ms": 5000})
+
+    assert resp.status_code == 200
+    search = resp.json()["search"]
+    assert search["status"] == "partial"
+    assert search["reranked"] is False
+    assert search["degraded"] == ["sparse_skipped", "rerank_skipped", "deadline_hit"]
+    assert search["candidates_considered"] == 37
+    assert search["elapsed_ms"] == 8123
+    # Fails open: partial still returns the evidence it managed to gather.
+    assert len(resp.json()["items"]) == 1
+
+
+def test_retrieve_passes_the_deadline_budget_to_the_pipeline() -> None:
+    client, fake = _client([_PASSAGE])
+    client.post("/retrieve", json={"query": "سؤال", "deadline_ms": 2500})
+
+    assert fake is not None
+    assert fake.last_deadline is not None
+    assert fake.last_deadline._budget_ms == 2500
+
+
+def test_retrieve_candidates_considered_is_the_pool_not_the_page() -> None:
+    outcome = RetrievalOutcome(passages=[_PASSAGE], candidates_considered=50, reranked=True)
+    client, _ = _client([_PASSAGE], outcome=outcome)
+    body = client.post("/retrieve", json={"query": "س", "deadline_ms": 5000}).json()
+
+    assert len(body["items"]) == 1
+    assert body["search"]["candidates_considered"] == 50
+
+
+def test_retrieve_exposes_category_name() -> None:
+    client, _ = _client([_PASSAGE])
+    body = client.post("/retrieve", json={"query": "س", "deadline_ms": 5000}).json()
+    category = body["items"][0]["category"]
+
+    assert category["category_name"] == "الفقه الشافعي"
+    assert category["category_id"] == 16
+    assert category["suggested_domain"] == "fiqh"
+    # Named fields must not also leak into the passthrough bucket.
+    assert "category_name" not in body["items"][0]["raw"]
+
+
+def test_retrieve_missing_stable_id_is_a_loud_non_retryable_error() -> None:
+    broken = ExpandedPassage(
+        hit_chunk_id=99,
+        score=0.5,
+        section_id=None,
+        chunk_ids=(99,),
+        text="نص",
+        parts=(ExpandedChunkPart(chunk_id=99, source_text="نص", content_role="body", is_hit=True),),
+        payload={"book_id": 1, "category_id": 1, "content_role": "body"},  # no stable_id
+    )
+    client, _ = _client([broken])
+    resp = client.post("/retrieve", json={"query": "س", "deadline_ms": 5000})
+
+    assert resp.status_code == 500
+    error = resp.json()["error"]
+    assert error["code"] == "missing_stable_id"
+    assert error["retryable"] is False

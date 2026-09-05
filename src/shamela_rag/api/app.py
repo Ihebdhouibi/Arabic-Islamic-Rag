@@ -7,7 +7,6 @@ returns 503, so the app imports without building heavy models.
 
 from __future__ import annotations
 
-import time
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -33,7 +32,7 @@ from shamela_rag.generation.service import GeneralQAService
 from shamela_rag.retrieval.expand import ExpandedPassage, ExpandMode, ExpansionConfig
 from shamela_rag.retrieval.filters import RetrievalFilter
 from shamela_rag.retrieval.fusion import RETRIEVAL_SOURCES_KEY
-from shamela_rag.retrieval.service import RetrievalConfig, RetrievalService
+from shamela_rag.retrieval.service import Deadline, RetrievalConfig, RetrievalService
 
 
 def _to_filter(filters: FilterIn | None) -> RetrievalFilter | None:
@@ -58,6 +57,10 @@ def _retrieval_service(request: Request) -> RetrievalService:
     if svc is None:
         raise HTTPException(status_code=503, detail="QA service not configured")
     return svc
+
+
+class MissingStableIdError(RuntimeError):
+    """A retrieved chunk carried no stable citation id (an ingestion/data integrity fault)."""
 
 
 def _normalize_death_year(value: int | None) -> int | None:
@@ -90,6 +93,7 @@ def _passage_to_item(passage: ExpandedPassage, rank: int) -> RetrieveItem:
     named_keys = {
         "book_id",
         "category_id",
+        "category_name",
         "section_id",
         "content_role",
         "page_id",
@@ -110,8 +114,13 @@ def _passage_to_item(passage: ExpandedPassage, rank: int) -> RetrieveItem:
     }
     raw: dict[str, Any] = {k: v for k, v in p.items() if k not in named_keys}
 
+    stable_id = p.get("stable_id") or ""
+    if not stable_id:
+        # Citation ids must survive re-ingest; a blank one silently mis-attributes a quote.
+        raise MissingStableIdError(f"chunk {passage.hit_chunk_id} has no stable id")
+
     return RetrieveItem(
-        id=p.get("stable_id", ""),
+        id=stable_id,
         text=hit_text,
         text_en=None,
         score=passage.score,
@@ -119,7 +128,7 @@ def _passage_to_item(passage: ExpandedPassage, rank: int) -> RetrieveItem:
         content_role=p.get("content_role", "body"),
         category=CategoryOut(
             category_id=category_id,
-            category_name="",
+            category_name=p.get("category_name") or "",
             suggested_domain=domain.value if domain else None,
         ),
         citation=CitationBlock(
@@ -140,6 +149,26 @@ def _passage_to_item(passage: ExpandedPassage, rank: int) -> RetrieveItem:
     )
 
 
+def _index_health(service: RetrievalService, collection: str) -> IndexHealth:
+    """Ask Qdrant for real collection state; any failure means not ready."""
+    try:
+        info = service._dense._store.client.get_collection(collection)
+        points = info.points_count or 0
+        status_name = getattr(getattr(info, "status", None), "name", "")
+        return IndexHealth(
+            collection=collection,
+            points=int(points),
+            ready=status_name == "GREEN" and int(points) > 0,
+        )
+    except Exception:
+        return IndexHealth(collection=collection, ready=False)
+
+
+def _component_ready(service: RetrievalService, attribute: str) -> bool:
+    """A component is ready when it is actually wired onto the service."""
+    return getattr(service, attribute, None) is not None
+
+
 def _error_json(
     code: str,
     message: str,
@@ -158,45 +187,41 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
     app.state.qa_service = qa_service
     app.state.retrieval_service = getattr(qa_service, "_retrieval", None)
 
-    @app.get("/health", response_model=HealthResponse)
-    def health() -> HealthResponse:
+    @app.get("/health", response_model=None)
+    def health() -> HealthResponse | JSONResponse:
         svc: GeneralQAService | None = getattr(app.state, "qa_service", None)
-        if svc is None:
-            return HealthResponse(status="unavailable")
         rs: RetrievalService | None = getattr(app.state, "retrieval_service", None)
-        index_health: IndexHealth | None = None
-        embedder_health: ComponentHealth | None = None
-        reranker_health: ComponentHealth | None = None
-        if rs is not None:
-            from shamela_rag.config import get_settings
-
-            settings = get_settings()
-            try:
-                info = rs._dense._store.client.get_collection(settings.qdrant_collection)
-                index_health = IndexHealth(
-                    collection=settings.qdrant_collection,
-                    points=info.points_count or 0,
-                    ready=info.status.name == "GREEN",
-                )
-            except Exception:
-                index_health = IndexHealth(collection=settings.qdrant_collection, ready=False)
-
-            embedder_health = ComponentHealth(
-                model=settings.dense_embedding_model,
-                mode=settings.embedding_backend,
-                ready=True,
+        if svc is None or rs is None:
+            # Up but with nothing loaded is not healthy: probes must not route traffic here.
+            return JSONResponse(
+                status_code=503,
+                content=HealthResponse(status="unavailable").model_dump(),
             )
-            reranker_health = ComponentHealth(
-                model=settings.reranker_model,
-                mode="cross-encoder",
-                ready=True,
-            )
-        return HealthResponse(
-            status="ok",
+
+        from shamela_rag.config import get_settings
+
+        settings = get_settings()
+        index_health = _index_health(rs, settings.qdrant_collection)
+        embedder_health = ComponentHealth(
+            model=settings.dense_embedding_model,
+            mode=settings.embedding_backend,
+            ready=_component_ready(rs, "_dense"),
+        )
+        reranker_health = ComponentHealth(
+            model=settings.reranker_model,
+            mode="cross-encoder",
+            ready=_component_ready(rs, "_reranker"),
+        )
+        healthy = index_health.ready and embedder_health.ready and reranker_health.ready
+        response = HealthResponse(
+            status="ok" if healthy else "degraded",
             index=index_health,
             embedder=embedder_health,
             reranker=reranker_health,
         )
+        if not healthy:
+            return JSONResponse(status_code=503, content=response.model_dump())
+        return response
 
     @app.post("/ask", response_model=AnswerResponse)
     def ask(
@@ -215,9 +240,6 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
         payload: RetrieveRequest,
         svc: Annotated[RetrievalService, Depends(_retrieval_service)],
     ) -> RetrieveResponse | JSONResponse:
-        start_ms = time.monotonic_ns() // 1_000_000
-        degraded: list[str] = []
-
         config = RetrievalConfig(
             final_k=payload.top_k,
             rerank_top_k=payload.top_k,
@@ -225,37 +247,33 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
         )
 
         try:
-            passages = svc.retrieve(
+            outcome = svc.retrieve_with_outcome(
                 payload.query,
                 k=payload.top_k,
                 filters=_to_filter(payload.filters),
                 config=config,
+                deadline=Deadline(payload.deadline_ms),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except MissingStableIdError as exc:
+            return _error_json("missing_stable_id", str(exc), retryable=False, status=500)
         except Exception as exc:
-            return _error_json(
-                "retrieval_error",
-                str(exc),
-                retryable=True,
-                status=502,
-            )
+            return _error_json("retrieval_error", str(exc), retryable=True, status=502)
 
-        elapsed = time.monotonic_ns() // 1_000_000 - start_ms
-        if elapsed > payload.deadline_ms:
-            degraded.append("deadline_hit")
-
-        items = [_passage_to_item(p, rank) for rank, p in enumerate(passages, 1)]
-        status = "partial" if degraded else "ok"
+        try:
+            items = [_passage_to_item(p, rank) for rank, p in enumerate(outcome.passages, 1)]
+        except MissingStableIdError as exc:
+            return _error_json("missing_stable_id", str(exc), retryable=False, status=500)
 
         return RetrieveResponse(
             items=items,
             search=SearchMeta(
-                status=status,
-                candidates_considered=len(passages),
-                reranked=True,
-                degraded=degraded,
-                elapsed_ms=elapsed,
+                status="partial" if outcome.degraded else "ok",
+                candidates_considered=outcome.candidates_considered,
+                reranked=outcome.reranked,
+                degraded=list(outcome.degraded),
+                elapsed_ms=outcome.elapsed_ms,
             ),
         )
 
