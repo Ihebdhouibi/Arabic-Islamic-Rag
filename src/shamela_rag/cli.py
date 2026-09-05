@@ -130,6 +130,62 @@ def build_parser() -> argparse.ArgumentParser:
         help="Write the markdown report to this path (default: stdout only).",
     )
 
+    bench = subcommands.add_parser(
+        "benchmark",
+        help="Sizing and latency benchmark over a stratified ingested sample (#148).",
+    )
+    bench.add_argument(
+        "--corpus-root",
+        type=Path,
+        default=None,
+        help="Corpus root to sample (default: SHAMELA_CORPUS_ROOT).",
+    )
+    bench.add_argument(
+        "--books-per-category",
+        type=int,
+        default=1,
+        help="Books to ingest per category for the sample (default: 1).",
+    )
+    bench.add_argument(
+        "--skip-ingest",
+        action="store_true",
+        help="Measure whatever is already in Postgres/Qdrant instead of ingesting first.",
+    )
+    bench.add_argument(
+        "--skip-latency",
+        action="store_true",
+        help="Only measure sizing (the half that does not need a working retrieval stack).",
+    )
+    bench.add_argument(
+        "--budget-ms",
+        type=int,
+        default=8000,
+        help="Latency budget the p95 is judged against (default: 8000).",
+    )
+    bench.add_argument(
+        "--queries-file",
+        type=Path,
+        default=None,
+        help="Newline-separated queries for the latency run (default: a built-in Arabic set).",
+    )
+    bench.add_argument(
+        "--qdrant-container",
+        default="shamela-qdrant",
+        help="Container name used to measure Qdrant disk usage (default: shamela-qdrant).",
+    )
+    bench.add_argument(
+        "--model",
+        choices=("bge-m3", "qwen3"),
+        default=None,
+        help="Dense embedding backend used for ingest and query (default: bge-m3).",
+    )
+    bench.add_argument(
+        "--output",
+        type=Path,
+        default=None,
+        help="Write the markdown report to this path (default: stdout only).",
+    )
+
     build_bm25 = subcommands.add_parser(
         "build-bm25", help="Fit a corpus-wide surface-BM25 encoder and persist it."
     )
@@ -440,6 +496,129 @@ def _build_service(model: str | None) -> IngestionService:
         sparse_encoder=encoder,
         root_encoder=root_encoder,
     )
+
+
+_DEFAULT_BENCHMARK_QUERIES = (
+    "ما حكم الصلاة في السفر؟",
+    "ما هي شروط صحة البيع؟",
+    "من هو الإمام الشافعي؟",
+    "ما معنى الإجماع عند الأصوليين؟",
+    "ما حكم صيام يوم عرفة؟",
+    "ما الفرق بين الحديث الصحيح والحسن؟",
+    "ما هي أركان الإيمان؟",
+    "ما حكم الزكاة في عروض التجارة؟",
+    "كيف تقسم الفرائض بين الورثة؟",
+    "ما هي مقاصد الشريعة؟",
+    "ما حكم الوضوء من لحم الإبل؟",
+    "ما هو تعريف القياس في أصول الفقه؟",
+)
+
+
+def run_benchmark(args: argparse.Namespace) -> int:
+    """Ingest a stratified sample, measure both stores, and time the retrieval pipeline."""
+    from shamela_rag.db.engine import get_engine
+    from shamela_rag.eval.benchmark import (
+        BenchmarkReport,
+        docker_directory_size,
+        format_benchmark_report,
+        measure_latency,
+        measure_postgres,
+        measure_qdrant,
+    )
+    from shamela_rag.eval.structural import stratified_book_locations
+
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+    def status(message: str) -> None:
+        print(f"[benchmark] {message}", flush=True)
+        logger.info("%s", message)
+
+    settings = get_settings()
+    corpus_root = args.corpus_root or settings.corpus_root
+    notes: list[str] = []
+    categories: tuple[int, ...] = ()
+
+    if args.skip_ingest:
+        status("skipping ingest, measuring what is already stored")
+        notes.append("Measured an already-ingested database; this run did not ingest.")
+    else:
+        status(f"selecting {args.books_per_category} book(s) per category under {corpus_root}")
+        locations = stratified_book_locations(
+            corpus_root, books_per_category=args.books_per_category
+        )
+        if not locations:
+            logger.error("no matching books found under %s", corpus_root)
+            return 1
+        categories = tuple(
+            sorted({loc.category_id for loc in locations if loc.category_id is not None})
+        )
+        status(f"ingesting {len(locations)} book(s) across {len(categories)} categories")
+
+        service = _build_service(args.model)
+        for index, location in enumerate(locations, start=1):
+            summary = service.ingest_book(location)
+            status(
+                f"[{index}/{len(locations)}] book {summary.book_id}: "
+                f"{summary.chunk_count} chunks, {summary.upserted_points} points"
+            )
+        notes.append(
+            f"Sample ingested with {args.books_per_category} book(s) per category "
+            f"({len(locations)} books)."
+        )
+
+    status("measuring Postgres")
+    postgres = measure_postgres(get_engine())
+
+    status("measuring Qdrant")
+    from shamela_rag.vectorstore.qdrant_store import QdrantStore
+
+    store = QdrantStore()
+    disk = docker_directory_size(args.qdrant_container)
+    if disk is None:
+        notes.append(
+            "Qdrant disk size unavailable (container not reachable); point count is still measured."
+        )
+    qdrant = measure_qdrant(store.client, settings.qdrant_collection, storage_path=None)
+    qdrant = type(qdrant)(
+        collection=qdrant.collection,
+        points=qdrant.points,
+        disk_bytes=disk,
+        vector_dim=qdrant.vector_dim,
+    )
+
+    latency = None
+    if not args.skip_latency:
+        if args.queries_file is not None:
+            queries = [
+                line.strip()
+                for line in args.queries_file.read_text(encoding="utf-8").splitlines()
+                if line.strip()
+            ]
+        else:
+            queries = list(_DEFAULT_BENCHMARK_QUERIES)
+        status(f"timing {len(queries)} queries against the retrieval pipeline")
+
+        from shamela_rag.factory import build_general_qa_service
+
+        qa = build_general_qa_service(model=args.model or "bge-m3")
+        latency = measure_latency(qa._retrieval, queries, budget_ms=args.budget_ms)
+        status(f"p95 total: {latency.total.p95:.0f} ms (budget {args.budget_ms} ms)")
+
+    report = BenchmarkReport(
+        postgres=postgres,
+        qdrant=qdrant,
+        latency=latency,
+        sample_categories=categories,
+        notes=tuple(notes),
+    )
+    markdown = format_benchmark_report(report)
+    if args.output is not None:
+        args.output.parent.mkdir(parents=True, exist_ok=True)
+        args.output.write_text(markdown, encoding="utf-8")
+        status(f"wrote report to {args.output}")
+    print(markdown, end="")
+    return 0
 
 
 def run_build_bm25(args: argparse.Namespace) -> int:
@@ -793,6 +972,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_validate_structure(args)
     if args.command == "audit-structure":
         return run_audit_structure(args)
+    if args.command == "benchmark":
+        return run_benchmark(args)
     if args.command == "build-bm25":
         return run_build_bm25(args)
     if args.command == "ask":
