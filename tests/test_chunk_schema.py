@@ -29,6 +29,21 @@ _CHUNK_COLUMNS = {
 }
 
 
+_BOOK_COLUMNS = {
+    "title_ar",
+    "author_name_ar",
+    "author_death_hijri",
+    "category_id",
+    "category_name_ar",
+    "book_type_label",
+}
+
+
+def test_book_has_category_name_column() -> None:
+    columns = set(Base.metadata.tables["books"].columns.keys())
+    assert columns >= _BOOK_COLUMNS
+
+
 def test_section_has_provenance_columns() -> None:
     columns = set(Base.metadata.tables["sections"].columns.keys())
     assert columns >= _SECTION_COLUMNS

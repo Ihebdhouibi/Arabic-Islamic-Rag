@@ -96,6 +96,8 @@ def test_ingests_fixture_book_into_postgres_and_qdrant(engine: Engine, store: Qd
     with Session(engine) as session:
         book = session.get(Book, _BOOK_ID)
         assert book is not None
+        assert book.category_name_ar == "التراجم والطبقات"
+        assert book.category_id == 26
         sample = session.execute(
             select(Chunk).where(Chunk.book_id == _BOOK_ID).limit(1)
         ).scalar_one()

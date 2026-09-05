@@ -25,6 +25,7 @@ class Book(Base):
     author_name_ar: Mapped[str | None] = mapped_column(Text)
     author_death_hijri: Mapped[int | None] = mapped_column()
     category_id: Mapped[int | None] = mapped_column()
+    category_name_ar: Mapped[str | None] = mapped_column(Text)
     book_type_label: Mapped[str | None] = mapped_column(String(64))
 
 

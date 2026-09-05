@@ -194,6 +194,7 @@ class IngestionService:
         row.category_id = (
             book_meta.category_id if book_meta.category_id is not None else location.category_id
         )
+        row.category_name_ar = book_meta.category_name_ar
         row.book_type_label = book_meta.book_type_label
 
     @staticmethod
