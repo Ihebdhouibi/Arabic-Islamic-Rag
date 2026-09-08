@@ -14,6 +14,7 @@ report states which.
 from __future__ import annotations
 
 import statistics
+from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -21,11 +22,126 @@ from pathlib import Path
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
+from shamela_rag.data.discovery import BookLocation, iter_valid_books
+
 # Full-corpus totals, counted from the dataset (see docs/technical_docs).
 FULL_CORPUS_BOOKS = 8_589
 FULL_CORPUS_PAGES = 7_611_186
 
 _BYTES_PER_GB = 1024**3
+DEFAULT_TARGET_BOOKS = 50
+
+
+@dataclass(frozen=True)
+class SizedBook:
+    location: BookLocation
+    page_count: int
+
+
+def count_pages_jsonl(book_dir: Path) -> int:
+    """Cheap page estimate: count non-empty lines in ``pages.jsonl`` (no JSON parse)."""
+    path = book_dir / "pages.jsonl"
+    if not path.is_file():
+        return 0
+    count = 0
+    with path.open("r", encoding="utf-8", errors="replace") as handle:
+        for line in handle:
+            if line.strip():
+                count += 1
+    return count
+
+
+def load_book_ids_file(path: Path) -> list[int]:
+    """Parse a newline-separated book-id list (``#`` comments and blanks ignored)."""
+    ids: list[int] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        ids.append(int(line.split()[0]))
+    if not ids:
+        raise ValueError(f"no book ids found in {path}")
+    return ids
+
+
+def resolve_book_ids(corpus_root: Path, book_ids: Sequence[int]) -> list[BookLocation]:
+    """Resolve book ids to corpus locations; raise if any id is missing."""
+    wanted = list(dict.fromkeys(book_ids))
+    by_id = {loc.book_id: loc for loc in iter_valid_books(corpus_root)}
+    missing = [book_id for book_id in wanted if book_id not in by_id]
+    if missing:
+        preview = ", ".join(str(book_id) for book_id in missing[:10])
+        raise ValueError(f"{len(missing)} book id(s) not found under {corpus_root}: {preview}")
+    return [by_id[book_id] for book_id in wanted]
+
+
+def sample_books_for_benchmark(
+    corpus_root: Path,
+    *,
+    target_books: int = DEFAULT_TARGET_BOOKS,
+) -> list[BookLocation]:
+    """Pick ~``target_books`` with category coverage and a small/medium/large size mix.
+
+    Strategy: take one book per category first (discovery order), then fill remaining slots from
+    size terciles (small / medium / large by ``pages.jsonl`` line count) so the sample is not only
+    the shortest books.
+    """
+    if target_books <= 0:
+        raise ValueError(f"target_books must be positive, got {target_books}")
+
+    sized = [
+        SizedBook(location=loc, page_count=count_pages_jsonl(loc.book_dir))
+        for loc in iter_valid_books(corpus_root)
+        if loc.category_id is not None
+    ]
+    if not sized:
+        return []
+
+    by_category: dict[int, list[SizedBook]] = defaultdict(list)
+    for item in sized:
+        assert item.location.category_id is not None
+        by_category[item.location.category_id].append(item)
+
+    selected: list[SizedBook] = []
+    selected_ids: set[int] = set()
+    for category_id in sorted(by_category):
+        first = by_category[category_id][0]
+        selected.append(first)
+        selected_ids.add(first.location.book_id)
+        if len(selected) >= target_books:
+            return [item.location for item in selected]
+
+    remaining = [item for item in sized if item.location.book_id not in selected_ids]
+    remaining.sort(key=lambda item: item.page_count)
+    if not remaining:
+        return [item.location for item in selected]
+
+    tercile = max(1, len(remaining) // 3)
+    buckets = [
+        remaining[:tercile],
+        remaining[tercile : 2 * tercile],
+        remaining[2 * tercile :],
+    ]
+    # Prefer medium then large then small when topping up, so the fill is not tiny-book-heavy.
+    fill_order = (1, 2, 0)
+    while len(selected) < target_books:
+        progressed = False
+        for bucket_index in fill_order:
+            bucket = buckets[bucket_index]
+            while bucket and bucket[0].location.book_id in selected_ids:
+                bucket.pop(0)
+            if not bucket:
+                continue
+            pick = bucket.pop(0)
+            selected.append(pick)
+            selected_ids.add(pick.location.book_id)
+            progressed = True
+            if len(selected) >= target_books:
+                break
+        if not progressed:
+            break
+
+    return [item.location for item in selected]
 
 
 @dataclass(frozen=True)

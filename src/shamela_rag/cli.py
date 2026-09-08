@@ -141,10 +141,22 @@ def build_parser() -> argparse.ArgumentParser:
         help="Corpus root to sample (default: SHAMELA_CORPUS_ROOT).",
     )
     bench.add_argument(
+        "--target-books",
+        type=int,
+        default=50,
+        help="Size-aware sample size with category + small/medium/large mix (default: 50).",
+    )
+    bench.add_argument(
         "--books-per-category",
         type=int,
-        default=1,
-        help="Books to ingest per category for the sample (default: 1).",
+        default=None,
+        help="If set, use first-N-per-category stratified sampling instead of --target-books.",
+    )
+    bench.add_argument(
+        "--books-file",
+        type=Path,
+        default=None,
+        help="Newline-separated book ids to ingest (overrides sampling).",
     )
     bench.add_argument(
         "--skip-ingest",
@@ -521,9 +533,12 @@ def run_benchmark(args: argparse.Namespace) -> int:
         BenchmarkReport,
         docker_directory_size,
         format_benchmark_report,
+        load_book_ids_file,
         measure_latency,
         measure_postgres,
         measure_qdrant,
+        resolve_book_ids,
+        sample_books_for_benchmark,
     )
     from shamela_rag.eval.structural import stratified_book_locations
 
@@ -543,10 +558,37 @@ def run_benchmark(args: argparse.Namespace) -> int:
         status("skipping ingest, measuring what is already stored")
         notes.append("Measured an already-ingested database; this run did not ingest.")
     else:
-        status(f"selecting {args.books_per_category} book(s) per category under {corpus_root}")
-        locations = stratified_book_locations(
-            corpus_root, books_per_category=args.books_per_category
-        )
+        try:
+            if args.books_file is not None:
+                status(f"loading book ids from {args.books_file}")
+                locations = resolve_book_ids(corpus_root, load_book_ids_file(args.books_file))
+                notes.append(
+                    f"Sample taken from books file {args.books_file} ({len(locations)} books)."
+                )
+            elif args.books_per_category is not None:
+                status(
+                    f"selecting {args.books_per_category} book(s) per category under {corpus_root}"
+                )
+                locations = stratified_book_locations(
+                    corpus_root, books_per_category=args.books_per_category
+                )
+                notes.append(
+                    f"Sample ingested with {args.books_per_category} book(s) per category "
+                    f"({len(locations)} books)."
+                )
+            else:
+                status(
+                    f"selecting size-aware sample of {args.target_books} book(s) "
+                    f"under {corpus_root}"
+                )
+                locations = sample_books_for_benchmark(corpus_root, target_books=args.target_books)
+                notes.append(
+                    f"Size-aware sample of {len(locations)} book(s) "
+                    f"(target {args.target_books}; category coverage + small/medium/large mix)."
+                )
+        except ValueError as exc:
+            logger.error("%s", exc)
+            return 1
         if not locations:
             logger.error("no matching books found under %s", corpus_root)
             return 1
@@ -562,18 +604,14 @@ def run_benchmark(args: argparse.Namespace) -> int:
                 f"[{index}/{len(locations)}] book {summary.book_id}: "
                 f"{summary.chunk_count} chunks, {summary.upserted_points} points"
             )
-        notes.append(
-            f"Sample ingested with {args.books_per_category} book(s) per category "
-            f"({len(locations)} books)."
-        )
 
     status("measuring Postgres")
     postgres = measure_postgres(get_engine())
 
     status("measuring Qdrant")
-    from shamela_rag.vectorstore.qdrant_store import QdrantStore
+    from shamela_rag.vectorstore.qdrant_store import get_qdrant_store
 
-    store = QdrantStore()
+    store = get_qdrant_store()
     disk = docker_directory_size(args.qdrant_container)
     if disk is None:
         notes.append(
