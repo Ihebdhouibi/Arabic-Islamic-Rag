@@ -18,6 +18,7 @@ from collections import defaultdict
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import text
 from sqlalchemy.engine import Engine
@@ -292,7 +293,9 @@ def measure_postgres(engine: Engine) -> PostgresSizing:
     )
 
 
-def measure_qdrant(client, collection: str, *, storage_path: Path | None = None) -> QdrantSizing:
+def measure_qdrant(
+    client: Any, collection: str, *, storage_path: Path | None = None
+) -> QdrantSizing:
     """Point count from the API; disk size from the storage directory when it is reachable."""
     info = client.get_collection(collection)
     points = int(info.points_count or 0)
@@ -383,7 +386,7 @@ def project_full_corpus(postgres: PostgresSizing, qdrant: QdrantSizing) -> tuple
 
 
 def measure_latency(
-    service,
+    service: Any,
     queries: Sequence[str],
     *,
     budget_ms: int,
@@ -465,9 +468,10 @@ def format_benchmark_report(report: BenchmarkReport) -> str:
         f"| Postgres (database) | {pg.database_gb:.3f} GB | "
         f"{pg.bytes_per_page / 1024:.1f} KB | {pg.bytes_per_book / 1024:.1f} KB |",
     ]
-    if qd.disk_gb is not None:
-        per_page = qd.disk_bytes / pg.pages / 1024 if pg.pages else 0.0
-        per_book = qd.disk_bytes / pg.books / 1024 if pg.books else 0.0
+    if qd.disk_gb is not None and qd.disk_bytes is not None:
+        disk_bytes = qd.disk_bytes
+        per_page = disk_bytes / pg.pages / 1024 if pg.pages else 0.0
+        per_book = disk_bytes / pg.books / 1024 if pg.books else 0.0
         lines.append(
             f"| Qdrant (storage dir) | {qd.disk_gb:.3f} GB | {per_page:.1f} KB | "
             f"{per_book:.1f} KB |"
