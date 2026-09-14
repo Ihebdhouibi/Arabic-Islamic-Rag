@@ -14,7 +14,8 @@ already produced, reporting what it skipped. It never returns nothing just becau
 from __future__ import annotations
 
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -77,6 +78,22 @@ class Deadline:
         return self.elapsed_ms >= self._budget_ms
 
 
+class _StageTimer:
+    """Wall-clock per pipeline stage, in milliseconds, for latency profiling."""
+
+    def __init__(self, clock: Callable[[], float] = time.monotonic) -> None:
+        self._clock = clock
+        self.stages: dict[str, int] = {}
+
+    @contextmanager
+    def stage(self, name: str) -> Iterator[None]:
+        started = self._clock()
+        try:
+            yield
+        finally:
+            self.stages[name] = self.stages.get(name, 0) + int((self._clock() - started) * 1000)
+
+
 @dataclass(frozen=True)
 class RetrievalOutcome:
     """Passages plus what the pipeline actually did to produce them."""
@@ -86,6 +103,7 @@ class RetrievalOutcome:
     reranked: bool = False
     degraded: tuple[str, ...] = ()
     elapsed_ms: int = 0
+    stage_ms: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -150,33 +168,45 @@ class RetrievalService:
             raise ValueError("question must be non-empty")
         budget = deadline if deadline is not None else Deadline(None)
         degraded: list[str] = []
+        timer = _StageTimer()
 
-        query = self._prepare_query(question, cfg)
+        with timer.stage("translate"):
+            query = self._prepare_query(question, cfg)
 
-        dense = self._dense.search(query, limit=cfg.candidate_limit, filters=filters)
+        with timer.stage("dense"):
+            dense = self._dense.search(query, limit=cfg.candidate_limit, filters=filters)
         arms: list[tuple[str, Sequence[RetrievedChunk]]] = [(ARM_DENSE, dense)]
 
         # Past the budget: keep the dense arm we already paid for, skip the rest.
         if budget.expired:
             degraded.append(DEGRADED_SPARSE_SKIPPED)
         else:
-            arms.append(
-                (ARM_BM25, self._sparse.search(query, limit=cfg.candidate_limit, filters=filters))
-            )
-            if cfg.use_root_expansion and self._root is not None:
+            with timer.stage("sparse"):
                 arms.append(
-                    (ARM_ROOT, self._root.search(query, limit=cfg.candidate_limit, filters=filters))
+                    (
+                        ARM_BM25,
+                        self._sparse.search(query, limit=cfg.candidate_limit, filters=filters),
+                    )
                 )
+                if cfg.use_root_expansion and self._root is not None:
+                    arms.append(
+                        (
+                            ARM_ROOT,
+                            self._root.search(query, limit=cfg.candidate_limit, filters=filters),
+                        )
+                    )
 
-        fused = reciprocal_rank_fusion(
-            [results for _name, results in arms],
-            k=cfg.rrf_k,
-            limit=cfg.rerank_input_limit,
-            arm_names=[name for name, _results in arms],
-        )
-        candidates = self._hydrate(fused)
+        with timer.stage("fuse"):
+            fused = reciprocal_rank_fusion(
+                [results for _name, results in arms],
+                k=cfg.rrf_k,
+                limit=cfg.rerank_input_limit,
+                arm_names=[name for name, _results in arms],
+            )
+        with timer.stage("hydrate"):
+            candidates = self._hydrate(fused)
         if not candidates:
-            return self._outcome([], 0, False, degraded, budget)
+            return self._outcome([], 0, False, degraded, budget, timer)
 
         final_k = k if k is not None else cfg.final_k
         if budget.expired:
@@ -185,9 +215,10 @@ class RetrievalService:
             scored = _as_reranked(candidates[: cfg.rerank_top_k])
             reranked_ran = False
         else:
-            scored = self._reranker.rerank(query, candidates, top_k=cfg.rerank_top_k)
-            if self._reranker.contributes_rerank_source:
-                scored = [_append_rerank_source(chunk) for chunk in scored]
+            with timer.stage("rerank"):
+                scored = self._reranker.rerank(query, candidates, top_k=cfg.rerank_top_k)
+                if self._reranker.contributes_rerank_source:
+                    scored = [_append_rerank_source(chunk) for chunk in scored]
             reranked_ran = True
 
         boosted = apply_authority_boost(
@@ -196,8 +227,9 @@ class RetrievalService:
             transcript_penalty=cfg.transcript_penalty,
             order_by_death_hijri=cfg.order_by_death_hijri,
         )
-        passages = self._expander.expand(boosted[:final_k], config=cfg.expansion)
-        return self._outcome(passages, len(candidates), reranked_ran, degraded, budget)
+        with timer.stage("expand"):
+            passages = self._expander.expand(boosted[:final_k], config=cfg.expansion)
+        return self._outcome(passages, len(candidates), reranked_ran, degraded, budget, timer)
 
     @staticmethod
     def _outcome(
@@ -206,6 +238,7 @@ class RetrievalService:
         reranked: bool,
         degraded: list[str],
         budget: Deadline,
+        timer: _StageTimer | None = None,
     ) -> RetrievalOutcome:
         reasons = list(degraded)
         if budget.expired and DEGRADED_DEADLINE_HIT not in reasons:
@@ -216,6 +249,7 @@ class RetrievalService:
             reranked=reranked,
             degraded=tuple(reasons),
             elapsed_ms=budget.elapsed_ms,
+            stage_ms=dict(timer.stages) if timer is not None else {},
         )
 
     def _prepare_query(self, question: str, cfg: RetrievalConfig) -> str:

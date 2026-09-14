@@ -20,6 +20,10 @@ _SPARSE = "sparse"
 _ROOT = "root"
 ROOT_VECTOR_NAME = _ROOT
 
+# Points per upsert request. At 4096 dims one point is roughly 80KB of JSON, so this keeps a
+# request near 5MB, comfortably inside Qdrant's 32MB body limit.
+UPSERT_BATCH_SIZE = 64
+
 
 @dataclass
 class ChunkPoint:
@@ -70,16 +74,30 @@ class QdrantStore:
     def count(self) -> int:
         return self._client.count(self._collection, exact=True).count
 
-    def upsert(self, points: Iterable[ChunkPoint]) -> None:
-        structs = [
-            models.PointStruct(
-                id=point.point_id,
-                vector=_point_vectors(point),
-                payload=point.payload,
+    def upsert(self, points: Iterable[ChunkPoint], *, batch_size: int = UPSERT_BATCH_SIZE) -> None:
+        """Write points in batches.
+
+        Qdrant caps the request body (32MB by default). A 4096-dim vector serializes to roughly
+        80KB of JSON, so a whole book in one request overruns that limit and the write is rejected
+        outright. Batching keeps each request well inside it regardless of book size or dimension.
+        """
+        if batch_size < 1:
+            raise ValueError(f"batch_size must be positive, got {batch_size}")
+
+        batch: list[models.PointStruct] = []
+        for point in points:
+            batch.append(
+                models.PointStruct(
+                    id=point.point_id,
+                    vector=_point_vectors(point),
+                    payload=point.payload,
+                )
             )
-            for point in points
-        ]
-        self._client.upsert(self._collection, points=structs, wait=True)
+            if len(batch) >= batch_size:
+                self._client.upsert(self._collection, points=batch, wait=True)
+                batch = []
+        if batch:
+            self._client.upsert(self._collection, points=batch, wait=True)
 
     def search_dense(
         self, vector: Sequence[float], *, limit: int = 10, query_filter: models.Filter | None = None
