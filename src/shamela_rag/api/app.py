@@ -7,6 +7,7 @@ returns 503, so the app imports without building heavy models.
 
 from __future__ import annotations
 
+import secrets
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, HTTPException, Request
@@ -61,6 +62,30 @@ def _retrieval_service(request: Request) -> RetrievalService:
 
 class MissingStableIdError(RuntimeError):
     """A retrieved chunk carried no stable citation id (an ingestion/data integrity fault)."""
+
+
+class RetrieveAuthError(Exception):
+    """Bearer credentials were absent or wrong (rendered as the contract's error envelope)."""
+
+
+def _require_bearer_token(request: Request) -> None:
+    """Guard ``POST /retrieve`` with a shared bearer token.
+
+    No configured token means the check is disabled, which is how local runs and offline CI work.
+    Comparison is constant-time so a wrong token cannot be recovered by timing the response.
+    """
+    from shamela_rag.config import get_settings
+
+    expected = get_settings().retrieve_api_token.strip()
+    if not expected:
+        return
+
+    header = request.headers.get("authorization", "")
+    scheme, _, presented = header.partition(" ")
+    if scheme.lower() != "bearer" or not presented.strip():
+        raise RetrieveAuthError("missing bearer token")
+    if not secrets.compare_digest(presented.strip(), expected):
+        raise RetrieveAuthError("invalid bearer token")
 
 
 def _normalize_death_year(value: int | None) -> int | None:
@@ -187,6 +212,10 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
     app.state.qa_service = qa_service
     app.state.retrieval_service = getattr(qa_service, "_retrieval", None)
 
+    @app.exception_handler(RetrieveAuthError)
+    def _auth_error(_request: Request, exc: RetrieveAuthError) -> JSONResponse:
+        return _error_json("unauthorized", str(exc), retryable=False, status=401)
+
     @app.get("/health", response_model=None)
     def health() -> HealthResponse | JSONResponse:
         svc: GeneralQAService | None = getattr(app.state, "qa_service", None)
@@ -238,6 +267,7 @@ def create_app(qa_service: GeneralQAService | None = None) -> FastAPI:
     @app.post("/retrieve", response_model=None)
     def retrieve(
         payload: RetrieveRequest,
+        _auth: Annotated[None, Depends(_require_bearer_token)],
         svc: Annotated[RetrievalService, Depends(_retrieval_service)],
     ) -> RetrieveResponse | JSONResponse:
         config = RetrievalConfig(

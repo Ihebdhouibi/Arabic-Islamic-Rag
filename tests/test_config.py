@@ -28,6 +28,7 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert "openrouter" in s.embedding_api_base_url
     assert s.translator_backend == "memory"
     assert s.translator_api_model == ""
+    assert s.retrieve_api_token == ""  # auth off unless explicitly configured
 
 
 def test_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
