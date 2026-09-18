@@ -160,3 +160,107 @@ def test_cli_build_embedder_routes_through_factory(monkeypatch: pytest.MonkeyPat
     embedder = cli._build_embedder("qwen3")
     assert isinstance(embedder, OpenRouterEmbeddingProvider)
     assert embedder.model == OPENROUTER_QWEN3_EMBEDDING_8B
+
+
+def test_openrouter_rejects_non_positive_max_concurrency() -> None:
+    with pytest.raises(ValueError, match="max_concurrency"):
+        OpenRouterEmbeddingProvider(OPENROUTER_BGE_M3, api_key="k", dims=2, max_concurrency=0)
+
+
+def test_openrouter_concurrent_batches_preserve_input_order() -> None:
+    import threading
+    import time
+
+    started = threading.Barrier(2)
+    call_order: list[str] = []
+    lock = threading.Lock()
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        first = body["input"][0]
+        with lock:
+            call_order.append(first)
+        started.wait(timeout=5)
+        if first == "a":
+            time.sleep(0.05)
+        payload = {
+            "data": [
+                {"index": i, "embedding": [float(ord(text[0])), 0.0]}
+                for i, text in enumerate(body["input"])
+            ]
+        }
+        return _FakeResponse(payload)
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_BGE_M3,
+        api_key="k",
+        dims=2,
+        batch_size=2,
+        max_concurrency=2,
+        opener=opener,
+    )
+    vectors = provider.embed_documents(["a", "b", "c", "d"])
+    assert vectors == [
+        [float(ord("a")), 0.0],
+        [float(ord("b")), 0.0],
+        [float(ord("c")), 0.0],
+        [float(ord("d")), 0.0],
+    ]
+    assert set(call_order) == {"a", "c"}
+
+
+def test_openrouter_shared_backoff_under_concurrent_429(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import threading
+    import urllib.error
+
+    mono = [0.0]
+    attempt_by_batch: dict[str, int] = {}
+    attempt_lock = threading.Lock()
+    barrier = threading.Barrier(2)
+    second_wave_started_at: list[float] = []
+
+    def fake_monotonic() -> float:
+        return mono[0]
+
+    def fake_sleep(seconds: float) -> None:
+        mono[0] += seconds
+
+    monkeypatch.setattr("shamela_rag.embeddings.openrouter.time.monotonic", fake_monotonic)
+    monkeypatch.setattr("shamela_rag.embeddings.openrouter.time.sleep", fake_sleep)
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        first = body["input"][0]
+        with attempt_lock:
+            attempt_by_batch[first] = attempt_by_batch.get(first, 0) + 1
+            attempt = attempt_by_batch[first]
+        if attempt == 1:
+            barrier.wait(timeout=5)
+            raise urllib.error.HTTPError(
+                url="https://openrouter.ai/api/v1/embeddings",
+                code=429,
+                msg="Too Many Requests",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(json.dumps({"error": {"message": "rate limited"}}).encode()),
+            )
+        second_wave_started_at.append(mono[0])
+        return _FakeResponse(
+            {"data": [{"index": i, "embedding": [1.0, 0.0]} for i, _ in enumerate(body["input"])]}
+        )
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_BGE_M3,
+        api_key="k",
+        dims=2,
+        batch_size=1,
+        max_concurrency=2,
+        retry_backoff=1.0,
+        opener=opener,
+    )
+    vectors = provider.embed_documents(["a", "b"])
+    assert vectors == [[1.0, 0.0], [1.0, 0.0]]
+    assert attempt_by_batch == {"a": 2, "b": 2}
+    assert second_wave_started_at
+    assert min(second_wave_started_at) >= 1.0 - 1e-9

@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     embedding_api_base_url: str = "https://openrouter.ai/api/v1"
     embedding_api_key: str = ""
     embedding_api_batch_size: int = Field(default=32, gt=0)
+    embedding_max_concurrency: int = Field(default=8, gt=0)
 
     # Local generation (default: in-memory stub; CI stays offline)
     llm_backend: Literal["memory", "llamacpp", "ollama", "openai_compatible"] = "memory"

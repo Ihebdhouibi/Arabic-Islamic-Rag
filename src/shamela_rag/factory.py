@@ -60,6 +60,7 @@ def _build_openrouter_embedder(model: str, settings: Settings) -> EmbeddingProvi
         api_key=settings.embedding_api_key,
         base_url=settings.embedding_api_base_url,
         batch_size=settings.embedding_api_batch_size,
+        max_concurrency=settings.embedding_max_concurrency,
     )
 
 
