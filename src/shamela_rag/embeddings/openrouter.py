@@ -135,10 +135,10 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
             list(texts[i : i + self._batch_size]) for i in range(0, len(texts), self._batch_size)
         ]
         if len(batches) == 1 or self._max_concurrency == 1:
-            out: list[list[float]] = []
+            serial: list[list[float]] = []
             for batch in batches:
-                out.extend(self._embed_batch(batch))
-            return out
+                serial.extend(self._embed_batch(batch))
+            return serial
 
         results: list[list[list[float]] | None] = [None] * len(batches)
         workers = min(self._max_concurrency, len(batches))
@@ -150,12 +150,12 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
                 index = futures[future]
                 results[index] = future.result()
 
-        out: list[list[float]] = []
+        merged: list[list[float]] = []
         for batch_vectors in results:
             if batch_vectors is None:
                 raise RuntimeError("embedding batch future returned no result")
-            out.extend(batch_vectors)
-        return out
+            merged.extend(batch_vectors)
+        return merged
 
     def embed_query(self, text: str) -> list[float]:
         payload = text
