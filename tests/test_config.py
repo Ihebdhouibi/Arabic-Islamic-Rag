@@ -26,6 +26,7 @@ def test_defaults_load(monkeypatch: pytest.MonkeyPatch) -> None:
     assert s.embedding_backend == "local"
     assert s.embedding_api_key == ""
     assert "openrouter" in s.embedding_api_base_url
+    assert s.embedding_max_concurrency == 8
     assert s.translator_backend == "memory"
     assert s.translator_api_model == ""
     assert s.retrieve_api_token == ""  # auth off unless explicitly configured

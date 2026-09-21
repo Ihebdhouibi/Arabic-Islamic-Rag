@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import threading
 import time
 import urllib.error
 import urllib.request
 from collections.abc import Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from shamela_rag.chunking.tokens import HeuristicTokenCounter, TokenCounter
@@ -25,6 +27,28 @@ _MODEL_DIMS: dict[str, int] = {
 }
 
 
+class _SharedBackoff:
+    """Shared pause so concurrent batch workers back off together on rate limits."""
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._pause_until = 0.0
+
+    def wait(self) -> None:
+        while True:
+            with self._lock:
+                remaining = self._pause_until - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(remaining, 1.0))
+
+    def signal(self, delay: float) -> None:
+        if delay <= 0:
+            return
+        with self._lock:
+            self._pause_until = max(self._pause_until, time.monotonic() + delay)
+
+
 class OpenRouterEmbeddingProvider(EmbeddingProvider):
     """Dense embeddings via OpenRouter's OpenAI-compatible embeddings API."""
 
@@ -36,6 +60,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         base_url: str = OPENROUTER_API_BASE_URL,
         dims: int | None = None,
         batch_size: int = 32,
+        max_concurrency: int = 8,
         timeout_seconds: float = 120.0,
         max_retries: int = 8,
         retry_backoff: float = 2.0,
@@ -51,6 +76,8 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
             raise ValueError("api_key must be non-empty")
         if batch_size <= 0:
             raise ValueError(f"batch_size must be positive, got {batch_size}")
+        if max_concurrency <= 0:
+            raise ValueError(f"max_concurrency must be positive, got {max_concurrency}")
         if timeout_seconds <= 0:
             raise ValueError(f"timeout_seconds must be positive, got {timeout_seconds}")
         if max_retries <= 0:
@@ -69,6 +96,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         self._base_url = base_url.rstrip("/")
         self._dims = resolved_dims
         self._batch_size = batch_size
+        self._max_concurrency = max_concurrency
         self._timeout_seconds = timeout_seconds
         self._max_retries = max_retries
         self._retry_backoff = retry_backoff
@@ -80,6 +108,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         )
         self._tokenizer: TokenCounter = HeuristicTokenCounter()
         self._opener = opener or urllib.request.urlopen
+        self._backoff = _SharedBackoff()
 
     @property
     def dims(self) -> int:
@@ -102,16 +131,31 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
         if not texts:
             return []
-        out: list[list[float]] = []
-        batch: list[str] = []
-        for text in texts:
-            batch.append(text)
-            if len(batch) >= self._batch_size:
-                out.extend(self._embed_batch(batch))
-                batch = []
-        if batch:
-            out.extend(self._embed_batch(batch))
-        return out
+        batches = [
+            list(texts[i : i + self._batch_size]) for i in range(0, len(texts), self._batch_size)
+        ]
+        if len(batches) == 1 or self._max_concurrency == 1:
+            serial: list[list[float]] = []
+            for batch in batches:
+                serial.extend(self._embed_batch(batch))
+            return serial
+
+        results: list[list[list[float]] | None] = [None] * len(batches)
+        workers = min(self._max_concurrency, len(batches))
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = {
+                pool.submit(self._embed_batch, batch): index for index, batch in enumerate(batches)
+            }
+            for future in as_completed(futures):
+                index = futures[future]
+                results[index] = future.result()
+
+        merged: list[list[float]] = []
+        for batch_vectors in results:
+            if batch_vectors is None:
+                raise RuntimeError("embedding batch future returned no result")
+            merged.extend(batch_vectors)
+        return merged
 
     def embed_query(self, text: str) -> list[float]:
         payload = text
@@ -136,6 +180,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         )
         last_error: Exception | None = None
         for attempt in range(1, self._max_retries + 1):
+            self._backoff.wait()
             try:
                 with self._opener(request, timeout=self._timeout_seconds) as response:
                     raw = response.read().decode("utf-8")
@@ -145,14 +190,14 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
                 last_error = ConnectionError(message)
                 if exc.code in {408, 429, 500, 502, 503, 504} and attempt < self._max_retries:
                     delay = min(60.0, self._retry_backoff * (2 ** (attempt - 1)))
-                    time.sleep(delay)
+                    self._backoff.signal(delay)
                     continue
                 raise last_error from exc
             except urllib.error.URLError as exc:
                 last_error = ConnectionError(f"{self._base_url} request failed: {exc}")
                 if attempt < self._max_retries:
                     delay = min(60.0, self._retry_backoff * (2 ** (attempt - 1)))
-                    time.sleep(delay)
+                    self._backoff.signal(delay)
                     continue
                 raise last_error from exc
         assert last_error is not None
