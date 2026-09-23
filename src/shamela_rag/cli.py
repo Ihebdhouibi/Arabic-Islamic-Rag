@@ -55,6 +55,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         help="Override the corpus root (default: SHAMELA_CORPUS_ROOT / config).",
     )
+    ingest.add_argument(
+        "--resume",
+        action="store_true",
+        help="Skip books that already have chunks in Postgres (resume a crashed run).",
+    )
 
     validate = subcommands.add_parser(
         "validate-structure",
@@ -431,7 +436,12 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
 
     total_chunks = 0
     total_points = 0
+    skipped = 0
     for location in locations:
+        if args.resume and not args.dry_run and service.already_ingested(location.book_id):
+            skipped += 1
+            logger.info("book %s: skipped (already_ingested)", location.book_id)
+            continue
         summary = service.ingest_book(location, dry_run=args.dry_run)
         total_chunks += summary.chunk_count
         total_points += summary.upserted_points
@@ -449,7 +459,11 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
             status,
         )
     logger.info(
-        "done: %d book(s), %d chunks, %d points", len(locations), total_chunks, total_points
+        "done: %d book(s), %d chunks, %d points%s",
+        len(locations),
+        total_chunks,
+        total_points,
+        f", {skipped} resumed/skipped" if skipped else "",
     )
     settings = get_settings()
     if (
@@ -481,7 +495,11 @@ def _build_service(model: str | None) -> IngestionService:
     settings = get_settings()
     embedder = _build_embedder(model)
     store = QdrantStore(
-        url=settings.qdrant_url, collection=settings.qdrant_collection, dense_dim=embedder.dims
+        url=settings.qdrant_url,
+        collection=settings.qdrant_collection,
+        dense_dim=embedder.dims,
+        api_key=settings.qdrant_api_key or None,
+        on_disk=settings.qdrant_on_disk,
     )
     # Reuse a persisted corpus-wide BM25 encoder when present so sparse vectors stay comparable.
     state_path = settings.bm25_state_path

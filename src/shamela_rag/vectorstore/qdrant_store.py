@@ -37,10 +37,20 @@ class ChunkPoint:
 
 
 class QdrantStore:
-    def __init__(self, *, url: str, collection: str, dense_dim: int) -> None:
-        self._client = QdrantClient(url=url)
+    def __init__(
+        self,
+        *,
+        url: str,
+        collection: str,
+        dense_dim: int,
+        api_key: str | None = None,
+        on_disk: bool = False,
+    ) -> None:
+        key = (api_key or "").strip() or None
+        self._client = QdrantClient(url=url, api_key=key)
         self._collection = collection
         self._dense_dim = dense_dim
+        self._on_disk = on_disk
 
     @property
     def client(self) -> QdrantClient:
@@ -49,20 +59,32 @@ class QdrantStore:
     def ensure_collection(self) -> None:
         if self._client.collection_exists(self._collection):
             return
+        sparse = models.SparseVectorParams(
+            index=models.SparseIndexParams(on_disk=self._on_disk) if self._on_disk else None
+        )
         self._client.create_collection(
             collection_name=self._collection,
             vectors_config={
-                _DENSE: models.VectorParams(size=self._dense_dim, distance=models.Distance.COSINE)
+                _DENSE: models.VectorParams(
+                    size=self._dense_dim,
+                    distance=models.Distance.COSINE,
+                    on_disk=self._on_disk or None,
+                    hnsw_config=models.HnswConfigDiff(on_disk=True) if self._on_disk else None,
+                )
             },
             sparse_vectors_config={
-                _SPARSE: models.SparseVectorParams(),
-                _ROOT: models.SparseVectorParams(),
+                _SPARSE: sparse,
+                _ROOT: sparse,
             },
         )
-        # Index the fields the general module filters on.
+        payload_schema: models.PayloadSchemaType | models.KeywordIndexParams
+        if self._on_disk:
+            payload_schema = models.KeywordIndexParams(type="keyword", on_disk=True)
+        else:
+            payload_schema = models.PayloadSchemaType.KEYWORD
         for field_name in ("book_id", "category_id", "content_role"):
             self._client.create_payload_index(
-                self._collection, field_name, field_schema=models.PayloadSchemaType.KEYWORD
+                self._collection, field_name, field_schema=payload_schema
             )
 
     def delete_collection(self) -> None:
@@ -150,4 +172,6 @@ def get_qdrant_store() -> QdrantStore:
         url=settings.qdrant_url,
         collection=settings.qdrant_collection,
         dense_dim=settings.qdrant_dense_dim,
+        api_key=settings.qdrant_api_key or None,
+        on_disk=settings.qdrant_on_disk,
     )

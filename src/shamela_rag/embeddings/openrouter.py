@@ -164,9 +164,15 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         return self._embed_batch([payload])[0]
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        body = json.dumps(
-            {"model": self._model, "input": texts, "encoding_format": "float"}
-        ).encode("utf-8")
+        request_body: dict[str, Any] = {
+            "model": self._model,
+            "input": texts,
+            "encoding_format": "float",
+        }
+        # Matryoshka / truncated output (e.g. Qwen3-8B at 1024 instead of native 4096).
+        if self._model.startswith("qwen/qwen3-embedding"):
+            request_body["dimensions"] = self._dims
+        body = json.dumps(request_body).encode("utf-8")
         request = urllib.request.Request(
             f"{self._base_url}/embeddings",
             data=body,

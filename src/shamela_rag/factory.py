@@ -59,6 +59,7 @@ def _build_openrouter_embedder(model: str, settings: Settings) -> EmbeddingProvi
         remote_model,
         api_key=settings.embedding_api_key,
         base_url=settings.embedding_api_base_url,
+        dims=settings.qdrant_dense_dim,
         batch_size=settings.embedding_api_batch_size,
         max_concurrency=settings.embedding_max_concurrency,
     )
@@ -169,7 +170,11 @@ def build_general_qa_service(
     settings = get_settings()
     dense = embedder or build_embedder(model)
     store = QdrantStore(
-        url=settings.qdrant_url, collection=settings.qdrant_collection, dense_dim=dense.dims
+        url=settings.qdrant_url,
+        collection=settings.qdrant_collection,
+        dense_dim=dense.dims,
+        api_key=settings.qdrant_api_key or None,
+        on_disk=settings.qdrant_on_disk,
     )
     encoder = sparse_encoder or _load_bm25(settings.bm25_state_path)
     cross = reranker or _build_reranker()

@@ -86,3 +86,38 @@ def test_non_positive_batch_size_is_rejected() -> None:
     store, _ = _store()
     with pytest.raises(ValueError, match="batch_size"):
         store.upsert(_points(1), batch_size=0)
+
+
+def test_ensure_collection_on_disk_sets_vector_and_index_flags() -> None:
+    store, client = _store()
+    store._on_disk = True
+    client.collection_exists.return_value = False
+
+    store.ensure_collection()
+
+    kwargs = client.create_collection.call_args.kwargs
+    dense = kwargs["vectors_config"]["dense"]
+    assert dense.on_disk is True
+    assert dense.hnsw_config is not None
+    assert dense.hnsw_config.on_disk is True
+    sparse = kwargs["sparse_vectors_config"]["sparse"]
+    assert sparse.index is not None
+    assert sparse.index.on_disk is True
+    payload_calls = client.create_payload_index.call_args_list
+    assert len(payload_calls) == 3
+    assert payload_calls[0].kwargs["field_schema"].on_disk is True
+
+
+def test_ensure_collection_default_keeps_in_memory_indexes() -> None:
+    store, client = _store()
+    store._on_disk = False
+    client.collection_exists.return_value = False
+
+    store.ensure_collection()
+
+    kwargs = client.create_collection.call_args.kwargs
+    dense = kwargs["vectors_config"]["dense"]
+    assert dense.on_disk is None
+    assert dense.hnsw_config is None
+    sparse = kwargs["sparse_vectors_config"]["sparse"]
+    assert sparse.index is None
