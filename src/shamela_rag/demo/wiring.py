@@ -64,6 +64,8 @@ def build_general_qa_service(
         url=settings.qdrant_url,
         collection=settings.qdrant_collection,
         dense_dim=resolved_embedder.dims,
+        api_key=settings.qdrant_api_key or None,
+        on_disk=settings.qdrant_on_disk,
     )
     session_factory = get_sessionmaker()
     root_retriever = None

@@ -135,7 +135,7 @@ class IngestionService:
         for location in iter_valid_books(corpus_root):
             if limit is not None and len(summaries) >= limit:
                 break
-            if skip_existing and not dry_run and self._already_ingested(location.book_id):
+            if skip_existing and not dry_run and self.already_ingested(location.book_id):
                 logger.info("skipping already-ingested book %s", location.book_id)
                 summaries.append(
                     BookIngestSummary(
@@ -154,7 +154,7 @@ class IngestionService:
                 )
         return summaries
 
-    def _already_ingested(self, book_id: int) -> bool:
+    def already_ingested(self, book_id: int) -> bool:
         with self._session_factory() as session:
             return session.query(Chunk.id).filter(Chunk.book_id == book_id).first() is not None
 

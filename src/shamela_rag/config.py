@@ -33,8 +33,11 @@ class Settings(BaseSettings):
 
     # Qdrant (vector store)
     qdrant_url: str = "http://localhost:6333"
+    qdrant_api_key: str = ""
     qdrant_collection: str = "shamela_general"
-    qdrant_dense_dim: int = 1024  # BGE-M3 default; Qwen3-8B would be larger
+    qdrant_dense_dim: int = 1024  # BGE-M3 default; OpenRouter Qwen3-8B may request 1024 via dims
+    # Persist dense/HNSW/payload/sparse indexes on disk (required for full-corpus VPS RAM limits).
+    qdrant_on_disk: bool = False
 
     # Models (final dense model chosen by the M6 benchmark)
     dense_embedding_model: str = "BAAI/bge-m3"

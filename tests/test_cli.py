@@ -16,8 +16,12 @@ def _loc(book_id: int, category_id: int = 1) -> BookLocation:
 
 
 class _FakeService:
-    def __init__(self) -> None:
+    def __init__(self, *, ingested: set[int] | None = None) -> None:
         self.calls: list[tuple[int, bool]] = []
+        self._ingested = set(ingested or ())
+
+    def already_ingested(self, book_id: int) -> bool:
+        return book_id in self._ingested
 
     def ingest_book(self, location: BookLocation, *, dry_run: bool = False) -> BookIngestSummary:
         self.calls.append((location.book_id, dry_run))
@@ -26,10 +30,11 @@ class _FakeService:
 
 
 def test_build_parser_reads_ingest_flags() -> None:
-    args = cli.build_parser().parse_args(["ingest", "--book", "5", "--dry-run"])
+    args = cli.build_parser().parse_args(["ingest", "--book", "5", "--dry-run", "--resume"])
     assert args.command == "ingest"
     assert args.book == 5
     assert args.dry_run is True
+    assert args.resume is True
     assert args.category is None
     assert args.all is False
 
@@ -79,6 +84,15 @@ def test_run_ingest_passes_dry_run(monkeypatch: pytest.MonkeyPatch) -> None:
 
     assert cli.run_ingest(args, service) == 0  # type: ignore[arg-type]
     assert service.calls == [(1, True)]
+
+
+def test_run_ingest_resume_skips_already_ingested(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(cli, "iter_valid_books", lambda _root: [_loc(1), _loc(2), _loc(3)])
+    args = cli.build_parser().parse_args(["ingest", "--all", "--resume"])
+    service = _FakeService(ingested={2})
+
+    assert cli.run_ingest(args, service) == 0  # type: ignore[arg-type]
+    assert service.calls == [(1, False), (3, False)]
 
 
 def test_run_ingest_no_match_returns_error(monkeypatch: pytest.MonkeyPatch) -> None:

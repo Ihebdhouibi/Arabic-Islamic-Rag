@@ -83,9 +83,19 @@ def test_openrouter_embed_query_applies_qwen_instruction() -> None:
     assert seen["body"]["input"][0].startswith("Instruct:")
     assert "Query:hello" in seen["body"]["input"][0]
     assert provider.query_instruction is not None
+    assert seen["body"]["dimensions"] == 4
 
 
-def test_openrouter_rejects_empty_key_or_model() -> None:
+def test_openrouter_bge_does_not_send_dimensions() -> None:
+    seen: dict[str, Any] = {}
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        seen["body"] = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return _FakeResponse({"data": [{"index": 0, "embedding": [0.0, 1.0]}]})
+
+    provider = OpenRouterEmbeddingProvider(OPENROUTER_BGE_M3, api_key="k", dims=2, opener=opener)
+    provider.embed_documents(["x"])
+    assert "dimensions" not in seen["body"]
     with pytest.raises(ValueError, match="api_key"):
         OpenRouterEmbeddingProvider(OPENROUTER_BGE_M3, api_key=" ")
     with pytest.raises(ValueError, match="model"):
@@ -136,6 +146,7 @@ def test_build_embedder_openrouter_maps_model_names(monkeypatch: pytest.MonkeyPa
             embedding_backend="openrouter",
             embedding_api_key="secret",
             embedding_api_base_url="https://openrouter.ai/api/v1",
+            qdrant_dense_dim=1024,
         ),
     )
     qwen = factory.build_embedder("qwen3")
@@ -144,6 +155,8 @@ def test_build_embedder_openrouter_maps_model_names(monkeypatch: pytest.MonkeyPa
     assert isinstance(bge, OpenRouterEmbeddingProvider)
     assert qwen.model == OPENROUTER_QWEN3_EMBEDDING_8B
     assert bge.model == OPENROUTER_BGE_M3
+    assert qwen.dims == 1024
+    assert bge.dims == 1024
 
 
 def test_cli_build_embedder_routes_through_factory(monkeypatch: pytest.MonkeyPatch) -> None:
