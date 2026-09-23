@@ -79,7 +79,9 @@ class QdrantStore:
         )
         payload_schema: models.PayloadSchemaType | models.KeywordIndexParams
         if self._on_disk:
-            payload_schema = models.KeywordIndexParams(type="keyword", on_disk=True)
+            payload_schema = models.KeywordIndexParams(
+                type=models.KeywordIndexType.KEYWORD, on_disk=True
+            )
         else:
             payload_schema = models.PayloadSchemaType.KEYWORD
         for field_name in ("book_id", "category_id", "content_role"):
