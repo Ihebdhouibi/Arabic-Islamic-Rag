@@ -77,17 +77,30 @@ class QdrantStore:
                 _ROOT: sparse,
             },
         )
-        payload_schema: models.PayloadSchemaType | models.KeywordIndexParams
+        # book_id / category_id are stored as ints; a keyword index indexes 0 points and
+        # makes delete-by-book_id full-scan the collection (timeouts on large on_disk corpora).
+        self._ensure_payload_indexes()
+
+    def _ensure_payload_indexes(self) -> None:
+        integer_schema: models.PayloadSchemaType | models.IntegerIndexParams
+        keyword_schema: models.PayloadSchemaType | models.KeywordIndexParams
         if self._on_disk:
-            payload_schema = models.KeywordIndexParams(
+            integer_schema = models.IntegerIndexParams(
+                type=models.IntegerIndexType.INTEGER, on_disk=True
+            )
+            keyword_schema = models.KeywordIndexParams(
                 type=models.KeywordIndexType.KEYWORD, on_disk=True
             )
         else:
-            payload_schema = models.PayloadSchemaType.KEYWORD
-        for field_name in ("book_id", "category_id", "content_role"):
+            integer_schema = models.PayloadSchemaType.INTEGER
+            keyword_schema = models.PayloadSchemaType.KEYWORD
+        for field_name in ("book_id", "category_id"):
             self._client.create_payload_index(
-                self._collection, field_name, field_schema=payload_schema
+                self._collection, field_name, field_schema=integer_schema
             )
+        self._client.create_payload_index(
+            self._collection, "content_role", field_schema=keyword_schema
+        )
 
     def delete_collection(self) -> None:
         self._client.delete_collection(self._collection)

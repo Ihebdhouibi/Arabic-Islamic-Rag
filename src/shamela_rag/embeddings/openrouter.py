@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import threading
 import time
 import urllib.error
@@ -14,6 +15,8 @@ from typing import Any
 from shamela_rag.chunking.tokens import HeuristicTokenCounter, TokenCounter
 from shamela_rag.embeddings.provider import EmbeddingProvider
 from shamela_rag.embeddings.qwen import DEFAULT_TASK_DESCRIPTION, format_qwen_query
+
+logger = logging.getLogger(__name__)
 
 OPENROUTER_API_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_QWEN3_EMBEDDING_8B = "qwen/qwen3-embedding-8b"
@@ -164,10 +167,52 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         return self._embed_batch([payload])[0]
 
     def _embed_batch(self, texts: list[str]) -> list[list[float]]:
+        try:
+            return self._post_embeddings(texts)
+        except ConnectionError as exc:
+            if not self._is_context_length_error(exc):
+                raise
+            if len(texts) > 1:
+                mid = len(texts) // 2
+                logger.warning(
+                    "embedding batch of %d texts exceeded the context limit; splitting",
+                    len(texts),
+                )
+                return self._embed_batch(texts[:mid]) + self._embed_batch(texts[mid:])
+            shortened = texts[0][: max(1, len(texts[0]) // 2)]
+            if len(shortened) >= len(texts[0]):
+                raise
+            logger.warning(
+                "truncating one embedding input from %d to %d characters",
+                len(texts[0]),
+                len(shortened),
+            )
+            return self._embed_batch([shortened])
+
+    @staticmethod
+    def _is_context_length_error(exc: ConnectionError) -> bool:
+        text = str(exc).lower()
+        # OpenRouter may return 400 (token context) or 422 (character cap, e.g. 131072).
+        status_hit = "400" in text or "422" in text
+        hint_hit = (
+            "context length" in text
+            or "input_tokens" in text
+            or "input length" in text
+            or "less than 131072" in text
+            or "sequence should have less than" in text
+        )
+        return status_hit and hint_hit
+
+    def _post_embeddings(self, texts: list[str]) -> list[list[float]]:
         request_body: dict[str, Any] = {
             "model": self._model,
             "input": texts,
             "encoding_format": "float",
+            # Prefer cheaper OpenRouter hosts; do not fall back to pricier ones (e.g. SiliconFlow).
+            "provider": {
+                "order": ["nebius", "deepinfra"],
+                "allow_fallbacks": False,
+            },
         }
         # Matryoshka / truncated output (e.g. Qwen3-8B at 1024 instead of native 4096).
         if self._model.startswith("qwen/qwen3-embedding"):

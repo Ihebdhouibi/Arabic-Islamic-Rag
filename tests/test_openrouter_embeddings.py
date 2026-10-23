@@ -60,6 +60,10 @@ def test_openrouter_embed_documents_posts_batch_and_orders_by_index() -> None:
     vectors = provider.embed_documents(["a", "b"])
     assert seen["body"]["model"] == OPENROUTER_BGE_M3
     assert seen["body"]["input"] == ["a", "b"]
+    assert seen["body"]["provider"] == {
+        "order": ["nebius", "deepinfra"],
+        "allow_fallbacks": False,
+    }
     assert vectors == [[1.0, 0.0], [0.0, 1.0]]
     assert provider.dims == 2
     assert provider.query_instruction is None
@@ -119,6 +123,76 @@ def test_openrouter_surfaces_http_error() -> None:
     provider = OpenRouterEmbeddingProvider(OPENROUTER_BGE_M3, api_key="k", dims=2, opener=opener)
     with pytest.raises(ConnectionError, match="bad key"):
         provider.embed_documents(["x"])
+
+
+def test_openrouter_splits_batch_when_context_length_is_exceeded() -> None:
+    import urllib.error
+
+    calls: list[list[str]] = []
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        texts = list(body["input"])
+        calls.append(texts)
+        if len(texts) > 1:
+            message = (
+                "This model's maximum context length is 40960 tokens. "
+                "input_tokens value=40961"
+            )
+            raise urllib.error.HTTPError(
+                url="https://openrouter.ai/api/v1/embeddings",
+                code=400,
+                msg="Bad Request",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(json.dumps({"error": {"message": message}}).encode()),
+            )
+        return _FakeResponse({"data": [{"index": 0, "embedding": [float(len(texts[0])), 0.0]}]})
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_QWEN3_EMBEDDING_8B,
+        api_key="k",
+        dims=2,
+        batch_size=2,
+        opener=opener,
+    )
+    assert provider.embed_documents(["aa", "bbb"]) == [[2.0, 0.0], [3.0, 0.0]]
+    assert calls[0] == ["aa", "bbb"]
+    assert calls[1:] == [["aa"], ["bbb"]]
+
+
+def test_openrouter_truncates_single_input_on_http_422_char_limit() -> None:
+    import urllib.error
+
+    calls: list[list[str]] = []
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        body = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        texts = list(body["input"])
+        calls.append(texts)
+        if any(len(t) > 8 for t in texts):
+            message = (
+                "Value error, The input sequence should have less than 131072 "
+                f"characters. Input length: {len(texts[0])}"
+            )
+            raise urllib.error.HTTPError(
+                url="https://openrouter.ai/api/v1/embeddings",
+                code=422,
+                msg="Unprocessable Entity",
+                hdrs=None,  # type: ignore[arg-type]
+                fp=io.BytesIO(json.dumps({"error": {"message": message}}).encode()),
+            )
+        return _FakeResponse({"data": [{"index": 0, "embedding": [float(len(texts[0])), 0.0]}]})
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_QWEN3_EMBEDDING_8B,
+        api_key="k",
+        dims=2,
+        batch_size=1,
+        opener=opener,
+    )
+    assert provider.embed_documents(["abcdefghijklmnop"]) == [[8.0, 0.0]]
+    assert calls[0] == ["abcdefghijklmnop"]
+    assert all(len(t) <= 8 for batch in calls[1:] for t in batch)
 
 
 def test_build_embedder_openrouter_requires_key(monkeypatch: pytest.MonkeyPatch) -> None:

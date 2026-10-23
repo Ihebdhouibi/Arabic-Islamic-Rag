@@ -442,7 +442,11 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
             skipped += 1
             logger.info("book %s: skipped (already_ingested)", location.book_id)
             continue
-        summary = service.ingest_book(location, dry_run=args.dry_run)
+        try:
+            summary = service.ingest_book(location, dry_run=args.dry_run)
+        except Exception:
+            logger.exception("failed to ingest book %s", location.book_id)
+            continue
         total_chunks += summary.chunk_count
         total_points += summary.upserted_points
         if summary.skipped:
