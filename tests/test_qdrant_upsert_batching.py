@@ -9,6 +9,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 import pytest
+from qdrant_client import models
 
 from shamela_rag.vectorstore.qdrant_store import UPSERT_BATCH_SIZE, ChunkPoint, QdrantStore
 
@@ -105,7 +106,12 @@ def test_ensure_collection_on_disk_sets_vector_and_index_flags() -> None:
     assert sparse.index.on_disk is True
     payload_calls = client.create_payload_index.call_args_list
     assert len(payload_calls) == 3
-    assert payload_calls[0].kwargs["field_schema"].on_disk is True
+    book_schema = payload_calls[0].kwargs["field_schema"]
+    role_schema = payload_calls[2].kwargs["field_schema"]
+    assert book_schema.on_disk is True
+    assert book_schema.type == models.IntegerIndexType.INTEGER
+    assert role_schema.on_disk is True
+    assert role_schema.type == models.KeywordIndexType.KEYWORD
 
 
 def test_ensure_collection_default_keeps_in_memory_indexes() -> None:
@@ -121,3 +127,7 @@ def test_ensure_collection_default_keeps_in_memory_indexes() -> None:
     assert dense.hnsw_config is None
     sparse = kwargs["sparse_vectors_config"]["sparse"]
     assert sparse.index is None
+    payload_calls = client.create_payload_index.call_args_list
+    assert len(payload_calls) == 3
+    assert payload_calls[0].kwargs["field_schema"] == models.PayloadSchemaType.INTEGER
+    assert payload_calls[2].kwargs["field_schema"] == models.PayloadSchemaType.KEYWORD
