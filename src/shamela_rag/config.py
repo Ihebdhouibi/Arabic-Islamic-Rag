@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     embedding_api_key: str = ""
     embedding_api_batch_size: int = Field(default=32, gt=0)
     embedding_max_concurrency: int = Field(default=8, gt=0)
+    embedding_api_timeout_seconds: float = Field(default=120.0, gt=0)
+    # Attempts per request, including the first; backoff doubles from the base each retry.
+    embedding_api_max_retries: int = Field(default=8, gt=0)
+    embedding_api_retry_backoff_seconds: float = Field(default=2.0, gt=0)
+    # False only for a self-hosted service with a self-signed certificate.
+    embedding_api_verify_tls: bool = True
 
     # Local generation (default: in-memory stub; CI stays offline)
     llm_backend: Literal["memory", "llamacpp", "ollama", "openai_compatible"] = "memory"

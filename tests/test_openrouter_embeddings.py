@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import functools
 import io
 import json
 from typing import Any
@@ -136,8 +137,7 @@ def test_openrouter_splits_batch_when_context_length_is_exceeded() -> None:
         calls.append(texts)
         if len(texts) > 1:
             message = (
-                "This model's maximum context length is 40960 tokens. "
-                "input_tokens value=40961"
+                "This model's maximum context length is 40960 tokens. input_tokens value=40961"
             )
             raise urllib.error.HTTPError(
                 url="https://openrouter.ai/api/v1/embeddings",
@@ -351,3 +351,138 @@ def test_openrouter_shared_backoff_under_concurrent_429(
     assert attempt_by_batch == {"a": 2, "b": 2}
     assert second_wave_started_at
     assert min(second_wave_started_at) >= 1.0 - 1e-9
+
+
+def _capture_body(seen: dict[str, Any]) -> Any:
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        seen["body"] = json.loads(request.data.decode("utf-8"))  # type: ignore[attr-defined]
+        return _FakeResponse({"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
+
+    return opener
+
+
+def test_provider_routing_is_sent_only_to_openrouter() -> None:
+    openrouter: dict[str, Any] = {}
+    other: dict[str, Any] = {}
+    OpenRouterEmbeddingProvider(
+        OPENROUTER_QWEN3_EMBEDDING_8B, api_key="k", dims=2, opener=_capture_body(openrouter)
+    ).embed_documents(["x"])
+    OpenRouterEmbeddingProvider(
+        OPENROUTER_QWEN3_EMBEDDING_8B,
+        api_key="k",
+        dims=2,
+        base_url="https://10.0.0.1/v2/infer/abc/v1",
+        opener=_capture_body(other),
+    ).embed_documents(["x"])
+    assert "provider" in openrouter["body"]
+    assert "provider" not in other["body"]
+    assert other["body"]["dimensions"] == 2
+
+
+@pytest.mark.parametrize(
+    "error",
+    [ConnectionResetError("reset by peer"), TimeoutError("The read operation timed out")],
+    ids=["connection_reset", "read_timeout"],
+)
+def test_connection_reset_and_read_timeout_are_retried(
+    monkeypatch: pytest.MonkeyPatch, error: Exception
+) -> None:
+    monkeypatch.setattr("shamela_rag.embeddings.openrouter.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise error
+        return _FakeResponse({"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_BGE_M3, api_key="k", dims=2, retry_backoff=0.01, opener=opener
+    )
+    assert provider.embed_documents(["x"]) == [[1.0, 0.0]]
+    assert calls["n"] == 2
+
+
+def test_retries_stop_after_max_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("shamela_rag.embeddings.openrouter.time.sleep", lambda _s: None)
+    calls = {"n": 0}
+
+    def opener(request: object, timeout: float = 0) -> _FakeResponse:
+        calls["n"] += 1
+        raise ConnectionResetError("reset by peer")
+
+    provider = OpenRouterEmbeddingProvider(
+        OPENROUTER_BGE_M3, api_key="k", dims=2, max_retries=6, retry_backoff=0.01, opener=opener
+    )
+    with pytest.raises(ConnectionError, match="reset by peer"):
+        provider.embed_documents(["x"])
+    assert calls["n"] == 6
+
+
+def test_verify_tls_false_passes_an_unverified_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    import ssl
+
+    seen: dict[str, Any] = {}
+
+    def fake_urlopen(request: object, timeout: float = 0, context: Any = None) -> _FakeResponse:
+        seen["context"] = context
+        seen["timeout"] = timeout
+        return _FakeResponse({"data": [{"index": 0, "embedding": [1.0, 0.0]}]})
+
+    monkeypatch.setattr("shamela_rag.embeddings.openrouter.urllib.request.urlopen", fake_urlopen)
+    OpenRouterEmbeddingProvider(
+        OPENROUTER_BGE_M3, api_key="k", dims=2, timeout_seconds=60, verify_tls=False
+    ).embed_documents(["x"])
+    assert seen["context"].verify_mode == ssl.CERT_NONE
+    assert seen["context"].check_hostname is False
+    assert seen["timeout"] == 60
+
+    seen.clear()
+    OpenRouterEmbeddingProvider(OPENROUTER_BGE_M3, api_key="k", dims=2).embed_documents(["x"])
+    assert seen["context"] is None
+
+
+def test_build_embedder_passes_timeout_retry_and_tls_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from shamela_rag import factory
+    from shamela_rag.config import Settings
+
+    monkeypatch.setattr(
+        factory,
+        "get_settings",
+        lambda: Settings(
+            embedding_backend="openrouter",
+            embedding_api_key="secret",
+            embedding_api_timeout_seconds=60,
+            embedding_api_max_retries=6,
+            embedding_api_retry_backoff_seconds=1,
+            embedding_api_verify_tls=False,
+        ),
+    )
+    embedder = factory.build_embedder("qwen3")
+    assert embedder._timeout_seconds == 60
+    assert embedder._max_retries == 6
+    assert embedder._retry_backoff == 1
+    assert isinstance(embedder._opener, functools.partial)
+
+
+@pytest.mark.parametrize(
+    "model,configured,allowed",
+    [
+        ("qwen3", "qwen/qwen3-embedding-8b", True),
+        ("bge-m3", "BAAI/bge-m3", True),
+        ("bge-m3", "qwen/qwen3-embedding-8b", False),
+        ("qwen3", "BAAI/bge-m3", False),
+    ],
+)
+def test_ingest_refuses_a_model_other_than_the_configured_one(
+    model: str, configured: str, allowed: bool
+) -> None:
+    from shamela_rag.cli import require_configured_model
+
+    if allowed:
+        require_configured_model(model, configured)
+    else:
+        with pytest.raises(ValueError, match="SHAMELA_DENSE_EMBEDDING_MODEL"):
+            require_configured_model(model, configured)

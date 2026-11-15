@@ -62,6 +62,10 @@ def _build_openrouter_embedder(model: str, settings: Settings) -> EmbeddingProvi
         dims=settings.qdrant_dense_dim,
         batch_size=settings.embedding_api_batch_size,
         max_concurrency=settings.embedding_max_concurrency,
+        timeout_seconds=settings.embedding_api_timeout_seconds,
+        max_retries=settings.embedding_api_max_retries,
+        retry_backoff=settings.embedding_api_retry_backoff_seconds,
+        verify_tls=settings.embedding_api_verify_tls,
     )
 
 

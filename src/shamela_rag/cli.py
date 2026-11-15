@@ -481,6 +481,23 @@ def run_ingest(args: argparse.Namespace, service: IngestionService) -> int:
     return 0
 
 
+_MODEL_FAMILY = {"qwen3": "qwen3-embedding", "bge-m3": "bge-m3"}
+
+
+def require_configured_model(name: str, configured: str) -> None:
+    """Refuse a model that differs from SHAMELA_DENSE_EMBEDDING_MODEL.
+
+    Both models return 1024 dims, so a run without ``--model qwen3`` once wrote BGE-M3 vectors
+    into the Qwen3 collection without any error.
+    """
+    family = _MODEL_FAMILY.get(name)
+    if family is not None and family not in configured.lower():
+        raise ValueError(
+            f"embedding model {name!r} does not match "
+            f"SHAMELA_DENSE_EMBEDDING_MODEL={configured!r}; pass the matching --model"
+        )
+
+
 def _build_embedder(model: str | None) -> EmbeddingProvider:
     """Delegate to ``factory.build_embedder`` so ingestion respects ``SHAMELA_EMBEDDING_BACKEND``
     the same way the query-time service does — otherwise ``ingest``/``build-bm25`` would silently
@@ -497,6 +514,7 @@ def _build_service(model: str | None) -> IngestionService:
     from shamela_rag.vectorstore.qdrant_store import QdrantStore
 
     settings = get_settings()
+    require_configured_model(model or "bge-m3", settings.dense_embedding_model)
     embedder = _build_embedder(model)
     store = QdrantStore(
         url=settings.qdrant_url,

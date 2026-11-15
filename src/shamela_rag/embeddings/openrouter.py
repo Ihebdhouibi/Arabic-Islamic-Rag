@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import logging
+import ssl
 import threading
 import time
 import urllib.error
@@ -69,6 +71,7 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         retry_backoff: float = 2.0,
         apply_qwen_query_instruction: bool | None = None,
         task_description: str = DEFAULT_TASK_DESCRIPTION,
+        verify_tls: bool = True,
         opener: Any | None = None,
     ) -> None:
         name = model.strip()
@@ -110,7 +113,9 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
             else name.startswith("qwen/qwen3-embedding")
         )
         self._tokenizer: TokenCounter = HeuristicTokenCounter()
-        self._opener = opener or urllib.request.urlopen
+        self._opener = opener or _urlopen(verify_tls)
+        # OpenRouter's provider routing is meaningless to other OpenAI-compatible services.
+        self._send_provider_routing = "openrouter.ai" in self._base_url
         self._backoff = _SharedBackoff()
 
     @property
@@ -208,12 +213,10 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
             "model": self._model,
             "input": texts,
             "encoding_format": "float",
-            # Prefer cheaper OpenRouter hosts; do not fall back to pricier ones (e.g. SiliconFlow).
-            "provider": {
-                "order": ["nebius", "deepinfra"],
-                "allow_fallbacks": False,
-            },
         }
+        if self._send_provider_routing:
+            # Prefer cheaper OpenRouter hosts; do not fall back to pricier ones (e.g. SiliconFlow).
+            request_body["provider"] = {"order": ["nebius", "deepinfra"], "allow_fallbacks": False}
         # Matryoshka / truncated output (e.g. Qwen3-8B at 1024 instead of native 4096).
         if self._model.startswith("qwen/qwen3-embedding"):
             request_body["dimensions"] = self._dims
@@ -244,8 +247,9 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
                     self._backoff.signal(delay)
                     continue
                 raise last_error from exc
-            except urllib.error.URLError as exc:
-                last_error = ConnectionError(f"{self._base_url} request failed: {exc}")
+            except (urllib.error.URLError, ConnectionResetError, TimeoutError) as exc:
+                # Connection resets and read timeouts are not URLError; retry them too.
+                last_error = ConnectionError(f"{self._base_url} request failed: {exc!r}")
                 if attempt < self._max_retries:
                     delay = min(60.0, self._retry_backoff * (2 ** (attempt - 1)))
                     self._backoff.signal(delay)
@@ -303,3 +307,13 @@ class OpenRouterEmbeddingProvider(EmbeddingProvider):
         if detail:
             return f"OpenRouter embeddings HTTP {exc.code}: {detail}"
         return f"OpenRouter embeddings HTTP {exc.code}"
+
+
+def _urlopen(verify_tls: bool) -> Any:
+    if verify_tls:
+        return urllib.request.urlopen
+    # For a self-hosted service with a self-signed certificate.
+    context = ssl.create_default_context()
+    context.check_hostname = False
+    context.verify_mode = ssl.CERT_NONE
+    return functools.partial(urllib.request.urlopen, context=context)
